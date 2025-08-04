@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+streamlit
+openai
+mysql-connector-python
+pydantic
+requests
+python-dotenv
