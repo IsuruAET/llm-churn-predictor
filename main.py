@@ -7,6 +7,9 @@ import os
 from dotenv import load_dotenv
 import re
 from typing import Optional
+import csv
+from datetime import datetime
+import pandas as pd
 
 load_dotenv()
 
@@ -28,6 +31,84 @@ MODEL_PRICING = {
     "gpt-4o": {"input": 0.005, "output": 0.015},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006}
 }
+
+def log_prediction_to_csv(data):
+    """Log prediction results to CSV file"""
+    csv_file = 'prediction_logs.csv'
+    file_exists = os.path.exists(csv_file)
+    
+    with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        
+        # Write header if file doesn't exist
+        if not file_exists:
+            writer.writerow([
+                'Date and Time', 'Total Customers', 'Actual Churn Customers', 
+                'Actual Non Churn Customers', 'Predicted Churn Customers', 
+                'Predicted Non Churn Customers', 'Matched', 'Mismatched', 
+                'False Positives', 'False Negatives', 'Input Tokens', 
+                'Output Tokens', 'Total Tokens', 'Model', 'Total Cost', 
+                'Additional Prompt'
+            ])
+        
+        # Calculate metrics
+        total_customers = data['total_customers']
+        actual_churn = len(data['actual_churned_customers'])
+        actual_non_churn = total_customers - actual_churn
+        predicted_churn = len(data['churned_customers'])
+        predicted_non_churn = total_customers - predicted_churn
+        
+        # Calculate matches and mismatches
+        matched = len(set(data['actual_churned_customers']) & set(data['churned_customers']))
+        mismatched = total_customers - matched
+        false_positives = len(set(data['churned_customers']) - set(data['actual_churned_customers']))
+        false_negatives = len(set(data['actual_churned_customers']) - set(data['churned_customers']))
+        
+        writer.writerow([
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            total_customers,
+            actual_churn,
+            actual_non_churn,
+            predicted_churn,
+            predicted_non_churn,
+            matched,
+            mismatched,
+            false_positives,
+            false_negatives,
+            data['usage']['input_tokens'],
+            data['usage']['output_tokens'],
+            data['usage']['total_tokens'],
+            data['usage']['model'],
+            data['usage']['total_cost'],
+            data.get('custom_prompt', '')
+        ])
+
+@app.get("/prediction-logs")
+def get_prediction_logs():
+    """Retrieve all prediction logs"""
+    csv_file = 'prediction_logs.csv'
+    if not os.path.exists(csv_file):
+        return {"logs": []}
+    
+    try:
+        df = pd.read_csv(csv_file)
+        # Replace NaN values with None for JSON serialization
+        df = df.where(pd.notna(df), None)
+        
+        # Convert to records and handle any remaining NaN issues
+        records = []
+        for _, row in df.iterrows():
+            record = {}
+            for col, value in row.items():
+                if pd.isna(value) or value == 'nan':
+                    record[col] = None
+                else:
+                    record[col] = value
+            records.append(record)
+        
+        return {"logs": records}
+    except Exception as e:
+        return {"logs": [], "error": str(e)}
 
 @app.post("/predict-churn")
 def predict_churn(request: ChurnRequest):
@@ -155,10 +236,12 @@ def predict_churn(request: ChurnRequest):
     output_cost = (output_tokens / 1000) * model_pricing["output"]
     total_cost = input_cost + output_cost
 
-    return {
+    # Prepare response data
+    response_data = {
         "churned_customers": predicted_ids, 
         "actual_churned_customers": actual_churned,
         "raw_output": output,
+        "total_customers": len(grouped_data),
         "usage": {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
@@ -167,5 +250,11 @@ def predict_churn(request: ChurnRequest):
             "output_cost": round(output_cost, 6),
             "total_cost": round(total_cost, 6),
             "model": response.model
-        }
+        },
+        "custom_prompt": request.custom_prompt
     }
+
+    # Log prediction to CSV
+    log_prediction_to_csv(response_data)
+
+    return response_data

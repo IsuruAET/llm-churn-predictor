@@ -1,0 +1,3 @@
+Date and Time,Total Customers,Actual Churn Customers,Actual Non Churn Customers,Predicted Churn Customers,Predicted Non Churn Customers,Matched,Mismatched,False Positives,False Negatives,Input Tokens,Output Tokens,Total Tokens,Model,Total Cost,Additional Prompt
+2025-08-05 04:42:21,5,1,4,1,4,0,5,1,1,1699,98,1797,gpt-3.5-turbo-0125,0.002744,
+2025-08-05 04:44:06,5,1,4,1,4,1,4,0,0,1728,99,1827,gpt-3.5-turbo-0125,0.00279,It has only one actual churn customer. if customer don't have order within resent 3 months. That customer consider as a churn customer. 
