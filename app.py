@@ -20,12 +20,22 @@ with col3:
         help="Choose the OpenAI model for prediction"
     )
 
+# Custom prompt section
+st.subheader("📝 Custom Prompt (Optional)")
+custom_prompt = st.text_area(
+    "Additional Instructions",
+    value="",
+    height=150,
+    help="Add additional instructions to append to the default prompt. Leave empty to use only default prompt."
+)
+
 if st.button("Predict Churn"):
     with st.spinner("Processing..."):
         res = requests.post("http://localhost:8000/predict-churn", json={
             "churn_count": churn_count,
             "non_churn_count": non_churn_count,
-            "model": model
+            "model": model,
+            "custom_prompt": custom_prompt if custom_prompt.strip() else None
         })
 
         if res.status_code == 200:

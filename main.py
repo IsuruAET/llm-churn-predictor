@@ -6,6 +6,7 @@ from collections import defaultdict
 import os
 from dotenv import load_dotenv
 import re
+from typing import Optional
 
 load_dotenv()
 
@@ -17,6 +18,7 @@ class ChurnRequest(BaseModel):
     churn_count: int
     non_churn_count: int
     model: str = "gpt-3.5-turbo"
+    custom_prompt: Optional[str] = None
 
 # Model pricing (per 1K tokens)
 MODEL_PRICING = {
@@ -115,13 +117,17 @@ def predict_churn(request: ChurnRequest):
         )
     }
 
+    default_content = (
+        f"Here is the recent weekly order data (last 20 weeks) for multiple customers.\n"
+        f"---\n{all_customers_text}\n---\n"
+        f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
+        f"Which customers will churn next week? Respond with a list of customer_ids only."
+    )
+    
     user_message = {
         "role": "user",
         "content": (
-            f"Here is the recent weekly order data (last 20 weeks) for multiple customers.\n"
-            f"---\n{all_customers_text}\n---\n"
-            f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
-            f"Which customers will churn next week? Respond with a list of customer_ids only."
+            default_content + f"\n\n{request.custom_prompt}" if request.custom_prompt else default_content
         )
     }
 
