@@ -89,7 +89,12 @@ from datetime import datetime
 with tab2:
     st.title("📊 Prediction Logs")
 
-    if st.button("🔄 Refresh Logs"):
+    # Initialize session state for auto-refresh
+    if 'auto_refresh' not in st.session_state:
+        st.session_state.auto_refresh = False
+
+    if st.button("🔄 Refresh Logs") or st.session_state.auto_refresh:
+        st.session_state.auto_refresh = False
         st.rerun()
 
     try:
@@ -165,20 +170,60 @@ with tab2:
                                 if pd.notna(x) and str(x).strip() else ''
                             )
 
-                    # Render HTML table manually
+                    # Move row_index to first column and rename it
+                    if 'row_index' in df.columns:
+                        # Reorder columns to put row_index first
+                        cols = ['row_index'] + [col for col in df.columns if col != 'row_index']
+                        df = df[cols]
+                        # Rename the column
+                        df = df.rename(columns={'row_index': 'Row Index'})
+
+                    # Render HTML table manually with delete buttons
                     st.subheader("📋 Prediction Log (List View)")
 
-                    html_table = "<table style='width:100%; border-collapse: collapse;' border='1'>"
-                    html_table += "<tr>" + "".join(f"<th style='padding:8px'>{col}</th>" for col in df.columns) + "</tr>"
+                    html_table = "<table style='width:100%; border-collapse: collapse; background-color: black; color: white; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;' border='1'>"
+                    html_table += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
 
                     for _, row in df.iterrows():
-                        html_table += "<tr>" + "".join(
-                            f"<td style='vertical-align:top; padding:8px'>{row[col]}</td>" for col in df.columns
-                        ) + "</tr>"
+                        row_index = row.get('Row Index', _)
+                        html_table += "<tr style='background-color: black;'>" + "".join(
+                            f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df.columns
+                        ) + f"<td style='vertical-align:top; padding:8px; text-align:center; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>"
+                        html_table += f"<button onclick='deleteRow({row_index})' style='background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>🗑️ Delete</button>"
+                        html_table += "</td></tr>"
 
                     html_table += "</table>"
 
-                    st.markdown(html_table, unsafe_allow_html=True)
+                    # Add JavaScript for delete functionality
+                    delete_js = """
+                    <script>
+                    function deleteRow(rowIndex) {
+                        if (confirm('Are you sure you want to delete this record?')) {
+                            fetch(`http://localhost:8000/prediction-logs/${rowIndex}`, {
+                                method: 'DELETE'
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    // Show success message and trigger page reload
+                                    alert('Record deleted successfully!');
+                                    // Force a hard reload to refresh the data
+                                    window.location.href = window.location.href;
+                                } else {
+                                    alert('Error: ' + data.error);
+                                }
+                            })
+                            .catch(error => {
+                                alert('Error: ' + error);
+                            });
+                        }
+                    }
+                    </script>
+                    """
+                    
+                    # Use st.components.html to execute JavaScript
+                    import streamlit.components.v1 as components
+                    components.html(html_table + delete_js, height=600, scrolling=True)
 
                     # CSV download
                     csv = df.copy()

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import mysql.connector
 import openai
@@ -14,6 +15,15 @@ import pandas as pd
 load_dotenv()
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -102,18 +112,42 @@ def get_prediction_logs():
         
         # Convert to records and handle any remaining NaN issues
         records = []
-        for _, row in df.iterrows():
+        for index, row in df.iterrows():
             record = {}
             for col, value in row.items():
                 if pd.isna(value) or value == 'nan':
                     record[col] = None
                 else:
                     record[col] = value
+            record['row_index'] = index  # Add row index for deletion
             records.append(record)
         
         return {"logs": records}
     except Exception as e:
         return {"logs": [], "error": str(e)}
+
+@app.delete("/prediction-logs/{row_index}")
+def delete_prediction_log(row_index: int):
+    """Delete a specific prediction log by row index"""
+    csv_file = 'prediction_logs.csv'
+    if not os.path.exists(csv_file):
+        return {"error": "No prediction logs file found"}
+    
+    try:
+        df = pd.read_csv(csv_file)
+        
+        if row_index < 0 or row_index >= len(df):
+            return {"error": f"Row index {row_index} out of range"}
+        
+        # Remove the row
+        df = df.drop(index=row_index).reset_index(drop=True)
+        
+        # Save back to CSV
+        df.to_csv(csv_file, index=False)
+        
+        return {"success": True, "message": f"Row {row_index} deleted successfully"}
+    except Exception as e:
+        return {"error": f"Failed to delete row: {str(e)}"}
 
 @app.post("/predict-churn")
 def predict_churn(request: ChurnRequest):
