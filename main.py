@@ -43,38 +43,38 @@ def log_prediction_to_csv(data):
         # Write header if file doesn't exist
         if not file_exists:
             writer.writerow([
-                'Date and Time', 'Total Customers', 'Actual Churn Customers', 
-                'Actual Non Churn Customers', 'Predicted Churn Customers', 
-                'Predicted Non Churn Customers', 'Matched', 'Mismatched', 
-                'False Positives', 'False Negatives', 'Input Tokens', 
-                'Output Tokens', 'Total Tokens', 'Model', 'Total Cost', 
-                'Additional Prompt'
+                'Date and Time', 'Total Customers', 'Actual Churn Customer IDs', 
+                'Actual Non Churn Customer IDs', 'Predicted Churn Customer IDs', 
+                'Predicted Non Churn Customer IDs', 'Matched', 'Mismatched', 
+                'False Positives', 'Input Tokens', 'Output Tokens', 
+                'Total Tokens', 'Model', 'Total Cost', 'Additional Prompt'
             ])
         
         # Calculate metrics
         total_customers = data['total_customers']
-        actual_churn = len(data['actual_churned_customers'])
-        actual_non_churn = total_customers - actual_churn
-        predicted_churn = len(data['churned_customers'])
-        predicted_non_churn = total_customers - predicted_churn
+        actual_churn_ids = ','.join(data['actual_churned_customers'])
+        actual_non_churn_ids = ','.join([cid for cid in data.get('all_customer_ids', []) if cid not in data['actual_churned_customers']])
+        predicted_churn_ids = ','.join(data['churned_customers'])
+        predicted_non_churn_ids = ','.join([cid for cid in data.get('all_customer_ids', []) if cid not in data['churned_customers']])
         
-        # Calculate matches and mismatches
-        matched = len(set(data['actual_churned_customers']) & set(data['churned_customers']))
-        mismatched = total_customers - matched
-        false_positives = len(set(data['churned_customers']) - set(data['actual_churned_customers']))
-        false_negatives = len(set(data['actual_churned_customers']) - set(data['churned_customers']))
+        # Calculate matches and mismatches using the specified conditions
+        actual_set = set(data['actual_churned_customers'])
+        predicted_set = set(data['churned_customers'])
+        
+        correctly_identified = len(actual_set.intersection(predicted_set))
+        missed_churners = len(actual_set - predicted_set)
+        false_alarms = len(predicted_set - actual_set)
         
         writer.writerow([
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             total_customers,
-            actual_churn,
-            actual_non_churn,
-            predicted_churn,
-            predicted_non_churn,
-            matched,
-            mismatched,
-            false_positives,
-            false_negatives,
+            actual_churn_ids,
+            actual_non_churn_ids,
+            predicted_churn_ids,
+            predicted_non_churn_ids,
+            correctly_identified,
+            missed_churners,
+            false_alarms,
             data['usage']['input_tokens'],
             data['usage']['output_tokens'],
             data['usage']['total_tokens'],
@@ -242,6 +242,7 @@ def predict_churn(request: ChurnRequest):
         "actual_churned_customers": actual_churned,
         "raw_output": output,
         "total_customers": len(grouped_data),
+        "all_customer_ids": list(grouped_data.keys()),
         "usage": {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
