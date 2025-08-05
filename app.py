@@ -166,8 +166,8 @@ with tab2:
                     for col in id_columns:
                         if col in df.columns:
                             df[col] = df[col].apply(
-                                lambda x: "<ul>" + "".join(f"<li>{i.strip()}</li>" for i in str(x).split(',')) + "</ul>"
-                                if pd.notna(x) and str(x).strip() else ''
+                                lambda x: "<ul>" + "".join(f"<li>{id.strip()}</li>" for id in str(x).split(',') if id.strip() and len(id.strip()) == 36) + "</ul>"
+                                if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else ''
                             )
 
                     # Move row_index to first column and rename it
@@ -225,21 +225,28 @@ with tab2:
                     import streamlit.components.v1 as components
                     components.html(html_table + delete_js, height=600, scrolling=True)
 
-                    # CSV download
-                    csv = df.copy()
-                    for col in id_columns:
-                        if col in csv.columns:
-                            csv[col] = csv[col].str.replace(r'<[^>]+>', '', regex=True).str.replace('\n', ', ')
-                    # Generate filename with date and time
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"prediction_logs_{timestamp}.csv"
-                    
-                    st.download_button(
-                        label="📥 Download CSV",
-                        data=csv.to_csv(index=False),
-                        file_name=filename,
-                        mime="text/csv"
-                    )
+                    # CSV download using dedicated endpoint
+                    try:
+                        csv_res = requests.get("http://localhost:8000/prediction-logs/csv")
+                        if csv_res.status_code == 200:
+                            csv_data = csv_res.json()
+                            if "csv_content" in csv_data:
+                                # Generate filename with date and time
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                filename = f"prediction_logs_{timestamp}.csv"
+                                
+                                st.download_button(
+                                    label="📥 Download CSV",
+                                    data=csv_data["csv_content"],
+                                    file_name=filename,
+                                    mime="text/csv"
+                                )
+                            else:
+                                st.error("❌ Failed to get CSV content")
+                        else:
+                            st.error("❌ Failed to get CSV data")
+                    except Exception as e:
+                        st.error(f"❌ Error downloading CSV: {str(e)}")
                 else:
                     st.info("No prediction logs found. Run some predictions first!")
             else:

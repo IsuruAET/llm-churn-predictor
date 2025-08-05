@@ -118,13 +118,72 @@ def get_prediction_logs():
                 if pd.isna(value) or value == 'nan':
                     record[col] = None
                 else:
-                    record[col] = value
+                    # Ensure ID columns are properly formatted as comma-separated strings
+                    if 'Customer IDs' in col and isinstance(value, str):
+                        # Clean up any potential formatting issues and handle empty values
+                        cleaned_value = value.strip()
+                        record[col] = cleaned_value if cleaned_value and cleaned_value != 'nan' else ''
+                    else:
+                        record[col] = value
             record['row_index'] = index  # Add row index for deletion
             records.append(record)
         
         return {"logs": records}
     except Exception as e:
         return {"logs": [], "error": str(e)}
+
+@app.get("/prediction-logs/csv")
+def get_prediction_logs_csv():
+    """Retrieve prediction logs in CSV format for download"""
+    csv_file = 'prediction_logs.csv'
+    if not os.path.exists(csv_file):
+        return {"error": "No prediction logs file found"}
+    
+    try:
+        df = pd.read_csv(csv_file)
+        
+        # Add row index column
+        df['Row Index'] = df.index
+        
+        # Calculate accuracy for each row and add it after False Positives column
+        if 'False Positives' in df.columns:
+            # Calculate accuracy: (Matched + (Total Customers - Matched - Mismatched - False Positives)) / Total Customers
+            df['Accuracy'] = df.apply(
+                lambda row: f"{((row['Matched'] + (row['Total Customers'] - row['Matched'] - row['Mismatched'] - row['False Positives'])) / row['Total Customers'] * 100):.1f}%" 
+                if row['Total Customers'] > 0 else "0.0%", 
+                axis=1
+            )
+            
+            # Reorder columns to put Accuracy after False Positives
+            cols = list(df.columns)
+            false_positives_idx = cols.index('False Positives')
+            cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
+            df = df[cols]
+        
+        # Reorder columns to put Row Index first
+        cols = ['Row Index'] + [col for col in df.columns if col != 'Row Index']
+        df = df[cols]
+        
+        # Process ID columns to format them properly for CSV download
+        id_columns = [
+            'Actual Churn Customer IDs',
+            'Actual Non Churn Customer IDs', 
+            'Predicted Churn Customer IDs',
+            'Predicted Non Churn Customer IDs'
+        ]
+        
+        for col in id_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(
+                    lambda x: '\n'.join([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])
+                    if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else ''
+                )
+        
+        # Convert to CSV string
+        csv_content = df.to_csv(index=False)
+        return {"csv_content": csv_content}
+    except Exception as e:
+        return {"error": f"Failed to read CSV: {str(e)}"}
 
 @app.delete("/prediction-logs/{row_index}")
 def delete_prediction_log(row_index: int):
