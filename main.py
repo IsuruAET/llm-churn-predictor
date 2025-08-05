@@ -43,7 +43,7 @@ def log_prediction_to_csv(data):
         # Write header if file doesn't exist
         if not file_exists:
             writer.writerow([
-                'Date and Time', 'Total Customers', 'Actual Churn Customer IDs', 
+                'Date and Time', 'Total Customers', 'Churn Distribution', 'Actual Churn Customer IDs', 
                 'Actual Non Churn Customer IDs', 'Predicted Churn Customer IDs', 
                 'Predicted Non Churn Customer IDs', 'Matched', 'Mismatched', 
                 'False Positives', 'Input Tokens', 'Output Tokens', 
@@ -52,6 +52,10 @@ def log_prediction_to_csv(data):
         
         # Calculate metrics
         total_customers = data['total_customers']
+        actual_churn_count = len(data['actual_churned_customers'])
+        actual_non_churn_count = total_customers - actual_churn_count
+        churn_distribution = f"{actual_churn_count}:{actual_non_churn_count}"
+        
         actual_churn_ids = ','.join(data['actual_churned_customers'])
         actual_non_churn_ids = ','.join([cid for cid in data.get('all_customer_ids', []) if cid not in data['actual_churned_customers']])
         predicted_churn_ids = ','.join(data['churned_customers'])
@@ -68,6 +72,7 @@ def log_prediction_to_csv(data):
         writer.writerow([
             datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             total_customers,
+            churn_distribution,
             actual_churn_ids,
             actual_non_churn_ids,
             predicted_churn_ids,
