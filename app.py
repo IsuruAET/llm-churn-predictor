@@ -102,8 +102,31 @@ with tab2:
                 df = pd.DataFrame(data["logs"])
 
                 if not df.empty:
+                    # Sort by timestamp or ID to show most recent records first
+                    if 'Timestamp' in df.columns:
+                        df = df.sort_values('Timestamp', ascending=False)
+                    elif 'ID' in df.columns:
+                        df = df.sort_values('ID', ascending=False)
+                    else:
+                        # If no timestamp/ID column, reverse the order to show newest first
+                        df = df.iloc[::-1].reset_index(drop=True)
                     if 'Total Cost' in df.columns:
                         df['Total Cost'] = df['Total Cost'].apply(lambda x: f"${x:.6f}" if pd.notna(x) else "$0.000000")
+
+                    # Calculate accuracy for each row and add it after False Positives column
+                    if 'False Positives' in df.columns:
+                        # Calculate accuracy: (Matched + (Total Customers - Matched - Mismatched - False Positives)) / Total Customers
+                        df['Accuracy'] = df.apply(
+                            lambda row: f"{((row['Matched'] + (row['Total Customers'] - row['Matched'] - row['Mismatched'] - row['False Positives'])) / row['Total Customers'] * 100):.1f}%" 
+                            if row['Total Customers'] > 0 else "0.0%", 
+                            axis=1
+                        )
+                        
+                        # Reorder columns to put Accuracy after False Positives
+                        cols = list(df.columns)
+                        false_positives_idx = cols.index('False Positives')
+                        cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
+                        df = df[cols]
 
                     col1, col2, col3, col4, col5 = st.columns(5)
                     with col1:
