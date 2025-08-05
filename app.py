@@ -13,10 +13,10 @@ with tab1:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        churn_count = st.number_input("Churn Customer Sample Size", min_value=1, value=1)
+        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=10, value=1)
 
     with col2:
-        non_churn_count = st.number_input("Non-Churn Customer Sample Size", min_value=1, value=4)
+        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=40, value=4)
 
     with col3:
         model = st.selectbox(
@@ -105,16 +105,25 @@ with tab2:
                     if 'Total Cost' in df.columns:
                         df['Total Cost'] = df['Total Cost'].apply(lambda x: f"${x:.6f}" if pd.notna(x) else "$0.000000")
 
-                    col1, col2, col3, col4 = st.columns(4)
+                    col1, col2, col3, col4, col5 = st.columns(5)
                     with col1:
                         st.metric("Total Predictions", len(df))
                     with col2:
-                        avg_accuracy = df['Matched'].sum() / df['Total Customers'].sum() * 100 if df['Total Customers'].sum() > 0 else 0
-                        st.metric("Avg Accuracy", f"{avg_accuracy:.1f}%")
+                        # Calculate overall accuracy: (True Positives + True Negatives) / Total Predictions
+                        true_positives = df['Matched'].sum()  # Correctly identified churners
+                        true_negatives = df['Total Customers'].sum() - (df['Matched'].sum() + df['Mismatched'].sum() + df['False Positives'].sum())
+                        total_predictions = df['Total Customers'].sum()
+                        accuracy = (true_positives + true_negatives) / total_predictions * 100 if total_predictions > 0 else 0
+                        st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions")
                     with col3:
+                        # Calculate recall: True Positives / (True Positives + False Negatives)
+                        false_negatives = df['Mismatched'].sum()  # Missed churners
+                        recall = true_positives / (true_positives + false_negatives) * 100 if (true_positives + false_negatives) > 0 else 0
+                        st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives")
+                    with col4:
                         total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
                         st.metric("Total Cost", f"${total_cost:.6f}")
-                    with col4:
+                    with col5:
                         total_tokens = df['Total Tokens'].sum() if 'Total Tokens' in df.columns else 0
                         st.metric("Total Tokens", f"{total_tokens:,}")
 
