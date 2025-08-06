@@ -27,6 +27,8 @@ with tab1:
         st.session_state.dataset_loaded = False
     if 'dataset_data' not in st.session_state:
         st.session_state.dataset_data = None
+    if 'original_dataset_data' not in st.session_state:
+        st.session_state.original_dataset_data = None
     if 'last_churn_count' not in st.session_state:
         st.session_state.last_churn_count = churn_count
     if 'last_non_churn_count' not in st.session_state:
@@ -37,6 +39,7 @@ with tab1:
         st.session_state.last_non_churn_count != non_churn_count):
         st.session_state.dataset_loaded = False
         st.session_state.dataset_data = None
+        st.session_state.original_dataset_data = None
         st.session_state.last_churn_count = churn_count
         st.session_state.last_non_churn_count = non_churn_count
 
@@ -50,6 +53,7 @@ with tab1:
                 
                 if dataset_data["dataset"]:
                     st.session_state.dataset_data = dataset_data
+                    st.session_state.original_dataset_data = dataset_data  # Store original data
                     st.session_state.dataset_loaded = True
                     st.success("✅ Dataset loaded successfully!")
                 else:
@@ -93,6 +97,41 @@ with tab1:
             active_customers = unique_customers - churned_customers
             churn_distribution = f"{churned_customers}:{active_customers}"
             st.metric("Churn Distribution", churn_distribution, help="Churned:Active customers")
+
+        # Shuffle and Reset buttons
+        st.write("---")
+        st.subheader("🔄 Data Order Controls")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔀 Shuffle Customer Groups"):
+                with st.spinner("Shuffling customer groups..."):
+                    shuffled_res = requests.get(f"http://localhost:8000/dataset/shuffled?churn_count={churn_count}&non_churn_count={non_churn_count}")
+                    
+                    if shuffled_res.status_code == 200:
+                        shuffled_data = shuffled_res.json()
+                        
+                        if shuffled_data["dataset"]:
+                            st.session_state.dataset_data = shuffled_data
+                            st.success("✅ Customer groups shuffled successfully!")
+                            st.rerun()
+                        else:
+                            st.warning("No shuffled dataset found")
+                    else:
+                        st.error("❌ Failed to shuffle dataset")
+        
+        with col2:
+            if st.button("🔄 Reset to Original Order"):
+                if st.session_state.original_dataset_data:
+                    st.session_state.dataset_data = st.session_state.original_dataset_data
+                    st.success("✅ Reset to original order!")
+                    st.rerun()
+                else:
+                    st.warning("No original data to reset to")
+        
+        with col3:
+            st.write("")  # Empty space for alignment
 
     # Predict Churn button (only show if data is loaded)
     if st.session_state.dataset_loaded:
@@ -146,13 +185,20 @@ Which customers will churn next week? Respond with a list of customer_ids only."
         
         if st.button("🔮 Predict Churn"):
             with st.spinner("Processing prediction..."):
-                # Make the prediction
-                res = requests.post("http://localhost:8000/predict-churn", json={
+                # Prepare request data with current dataset
+                request_data = {
                     "churn_count": churn_count,
                     "non_churn_count": non_churn_count,
                     "model": model,
                     "custom_prompt": custom_prompt if custom_prompt.strip() else None
-                })
+                }
+                
+                # If we have shuffled data, send it to the backend
+                if st.session_state.dataset_data and st.session_state.dataset_data != st.session_state.original_dataset_data:
+                    request_data["shuffled_data"] = st.session_state.dataset_data["dataset"]
+                
+                # Make the prediction
+                res = requests.post("http://localhost:8000/predict-churn", json=request_data)
 
                 if res.status_code == 200:
                     data = res.json()
