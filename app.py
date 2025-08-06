@@ -298,12 +298,12 @@ with tab2:
                         true_negatives = df['Total Customers'].sum() - (df['Matched'].sum() + df['Mismatched'].sum() + df['False Positives'].sum())
                         total_predictions = df['Total Customers'].sum()
                         accuracy = (true_positives + true_negatives) / total_predictions * 100 if total_predictions > 0 else 0
-                        st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions")
+                        st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions. Formula: (True Positives + True Negatives) / Total Predictions")
                     with col3:
                         # Calculate recall: True Positives / (True Positives + False Negatives)
                         false_negatives = df['Mismatched'].sum()  # Missed churners
                         recall = true_positives / (true_positives + false_negatives) * 100 if (true_positives + false_negatives) > 0 else 0
-                        st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives")
+                        st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives. Formula: True Positives / (True Positives + False Negatives)")
                     with col4:
                         total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
                         st.metric("Total Cost", f"${total_cost:.6f}")
