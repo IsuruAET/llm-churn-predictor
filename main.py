@@ -226,7 +226,7 @@ def get_dataset(churn_count: int = 1, non_churn_count: int = 4):
         SELECT customer_id
         FROM (
             SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data
+            FROM sample_data_latest
             WHERE is_churn = 1
             GROUP BY customer_id
             ORDER BY last_week DESC
@@ -237,7 +237,7 @@ def get_dataset(churn_count: int = 1, non_churn_count: int = 4):
         SELECT customer_id
         FROM (
             SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data
+            FROM sample_data_latest
             WHERE is_churn = 0
             GROUP BY customer_id
             ORDER BY last_week DESC
@@ -257,7 +257,7 @@ def get_dataset(churn_count: int = 1, non_churn_count: int = 4):
         sd.discount_total,
         sd.loyalty_earned,
         sd.is_churn
-    FROM sample_data sd
+    FROM sample_data_latest sd
     JOIN selected_customers sc ON sd.customer_id = sc.customer_id
     ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
     """
@@ -290,7 +290,7 @@ def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4):
         SELECT customer_id
         FROM (
             SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data
+            FROM sample_data_latest
             WHERE is_churn = 1
             GROUP BY customer_id
             ORDER BY last_week DESC
@@ -301,7 +301,7 @@ def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4):
         SELECT customer_id
         FROM (
             SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data
+            FROM sample_data_latest
             WHERE is_churn = 0
             GROUP BY customer_id
             ORDER BY last_week DESC
@@ -321,7 +321,7 @@ def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4):
         sd.discount_total,
         sd.loyalty_earned,
         sd.is_churn
-    FROM sample_data sd
+    FROM sample_data_latest sd
     JOIN selected_customers sc ON sd.customer_id = sc.customer_id
     ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
     """
@@ -371,7 +371,7 @@ def predict_churn(request: ChurnRequest):
             SELECT customer_id
             FROM (
                 SELECT customer_id, MAX(week_end_date) AS last_week
-                FROM sample_data
+                FROM sample_data_latest
                 WHERE is_churn = 1
                 GROUP BY customer_id
                 ORDER BY last_week DESC
@@ -382,7 +382,7 @@ def predict_churn(request: ChurnRequest):
             SELECT customer_id
             FROM (
                 SELECT customer_id, MAX(week_end_date) AS last_week
-                FROM sample_data
+                FROM sample_data_latest
                 WHERE is_churn = 0
                 GROUP BY customer_id
                 ORDER BY last_week DESC
@@ -402,7 +402,7 @@ def predict_churn(request: ChurnRequest):
             sd.discount_total,
             sd.loyalty_earned,
             sd.is_churn
-        FROM sample_data sd
+        FROM sample_data_latest sd
         JOIN selected_customers sc ON sd.customer_id = sc.customer_id
         ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
         """
