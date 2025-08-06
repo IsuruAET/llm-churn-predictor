@@ -311,7 +311,10 @@ with tab2:
                         total_tokens = df['Total Tokens'].sum() if 'Total Tokens' in df.columns else 0
                         st.metric("Total Tokens", f"{total_tokens:,}")
 
-                    # Convert comma-separated IDs into HTML <ul><li>...</li></ul> format
+                    # Create a copy for display with counts instead of ID lists
+                    df_display = df.copy()
+                    
+                    # Convert ID columns to counts for display
                     id_columns = [
                         'Actual Churn Customer IDs',
                         'Actual Non Churn Customer IDs',
@@ -320,30 +323,56 @@ with tab2:
                     ]
 
                     for col in id_columns:
-                        if col in df.columns:
-                            df[col] = df[col].apply(
+                        if col in df_display.columns:
+                            df_display[col] = df_display[col].apply(
+                                lambda x: len([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])
+                                if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else 0
+                            )
+                            # Rename column to show it's a count
+                            new_col_name = col.replace(' Customer IDs', ' Count')
+                            df_display = df_display.rename(columns={col: new_col_name})
+                    
+                    # Keep original df for CSV download (with ID lists)
+                    df_csv = df.copy()
+                    
+                    # Convert comma-separated IDs into HTML <ul><li>...</li></ul> format for CSV download view
+                    for col in id_columns:
+                        if col in df_csv.columns:
+                            df_csv[col] = df_csv[col].apply(
                                 lambda x: "<ul>" + "".join(f"<li>{id.strip()}</li>" for id in str(x).split(',') if id.strip() and len(id.strip()) == 36) + "</ul>"
                                 if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else ''
                             )
 
                     # Move row_index to first column and rename it
                     if 'row_index' in df.columns:
-                        # Reorder columns to put row_index first
-                        cols = ['row_index'] + [col for col in df.columns if col != 'row_index']
-                        df = df[cols]
-                        # Rename the column
-                        df = df.rename(columns={'row_index': 'Row Index'})
+                         # Reorder columns to put row_index first
+                         cols = ['row_index'] + [col for col in df.columns if col != 'row_index']
+                         df = df[cols]
+                         # Rename the column
+                         df = df.rename(columns={'row_index': 'Row Index'})
+                         
+                         # Also update display dataframe
+                         if 'row_index' in df_display.columns:
+                             cols_display = ['row_index'] + [col for col in df_display.columns if col != 'row_index']
+                             df_display = df_display[cols_display]
+                             df_display = df_display.rename(columns={'row_index': 'Row Index'})
+                         
+                         # Also update CSV dataframe
+                         if 'row_index' in df_csv.columns:
+                             cols_csv = ['row_index'] + [col for col in df_csv.columns if col != 'row_index']
+                             df_csv = df_csv[cols_csv]
+                             df_csv = df_csv.rename(columns={'row_index': 'Row Index'})
 
-                    # Render HTML table manually with delete buttons
+                    # Render HTML table manually with delete buttons (using display dataframe with counts)
                     st.subheader("📋 Prediction Log (List View)")
 
                     html_table = "<table style='width:100%; border-collapse: collapse; background-color: black; color: white; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;' border='1'>"
-                    html_table += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
+                    html_table += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df_display.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
 
-                    for _, row in df.iterrows():
+                    for _, row in df_display.iterrows():
                         row_index = row.get('Row Index', _)
                         html_table += "<tr style='background-color: black;'>" + "".join(
-                            f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df.columns
+                            f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df_display.columns
                         ) + f"<td style='vertical-align:top; padding:8px; text-align:center; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>"
                         html_table += f"<button onclick='deleteRow({row_index})' style='background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>🗑️ Delete</button>"
                         html_table += "</td></tr>"
@@ -380,6 +409,27 @@ with tab2:
                     # Use st.components.html to execute JavaScript
                     import streamlit.components.v1 as components
                     components.html(html_table + delete_js, height=600, scrolling=True)
+                    
+                    # Add toggle for detailed view
+                    st.subheader("📋 Detailed View (with Customer IDs)")
+                    
+                    # Toggle for detailed view
+                    show_detailed = st.checkbox("Show detailed view with customer IDs", value=False)
+                    
+                    if show_detailed:
+                        html_table_detailed = "<table style='width:100%; border-collapse: collapse; background-color: black; color: white; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;' border='1'>"
+                        html_table_detailed += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df_csv.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
+
+                        for _, row in df_csv.iterrows():
+                            row_index = row.get('Row Index', _)
+                            html_table_detailed += "<tr style='background-color: black;'>" + "".join(
+                                f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df_csv.columns
+                            ) + f"<td style='vertical-align:top; padding:8px; text-align:center; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>"
+                            html_table_detailed += f"<button onclick='deleteRow({row_index})' style='background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>🗑️ Delete</button>"
+                            html_table_detailed += "</td></tr>"
+
+                        html_table_detailed += "</table>"
+                        components.html(html_table_detailed + delete_js, height=600, scrolling=True)
 
                     # CSV download using dedicated endpoint
                     try:
