@@ -114,6 +114,27 @@ with tab1:
         with col2:
             st.write("")  # Empty space to align with model selector
         
+        # Default prompt display
+        st.subheader("📋 Default Prompt")
+        default_prompt_text = """You are a churn prediction analyst.
+Given weekly order history per customer, identify which customers are likely to churn next week.
+Only return a list of customer_ids who are likely to churn.
+
+Here is the recent weekly order data (last 20 weeks) for multiple customers.
+---
+[Customer data will be inserted here]
+---
+Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.
+Which customers will churn next week? Respond with a list of customer_ids only."""
+        
+        st.text_area(
+            "Default Prompt",
+            value=default_prompt_text,
+            height=200,
+            disabled=True,
+            help="This is the default prompt that will be used for prediction"
+        )
+        
         # Custom prompt section
         st.subheader("📝 Custom Prompt (Optional)")
         custom_prompt = st.text_area(
