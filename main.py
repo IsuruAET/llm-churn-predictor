@@ -208,6 +208,70 @@ def delete_prediction_log(row_index: int):
     except Exception as e:
         return {"error": f"Failed to delete row: {str(e)}"}
 
+@app.get("/dataset")
+def get_dataset(churn_count: int = 1, non_churn_count: int = 4):
+    """Get the dataset that will be used for prediction"""
+    conn = mysql.connector.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        database=os.getenv("DB_NAME")
+    )
+    cursor = conn.cursor(dictionary=True)
+
+    query = f"""
+    WITH churn_customers AS (
+        SELECT customer_id
+        FROM (
+            SELECT customer_id, MAX(week_end_date) AS last_week
+            FROM sample_data
+            WHERE is_churn = 1
+            GROUP BY customer_id
+            ORDER BY last_week DESC
+            LIMIT {churn_count}
+        ) AS ordered_churn
+    ),
+    non_churn_customers AS (
+        SELECT customer_id
+        FROM (
+            SELECT customer_id, MAX(week_end_date) AS last_week
+            FROM sample_data
+            WHERE is_churn = 0
+            GROUP BY customer_id
+            ORDER BY last_week DESC
+            LIMIT {non_churn_count}
+        ) AS ordered_non_churn
+    ),
+    selected_customers AS (
+        SELECT customer_id FROM churn_customers
+        UNION ALL
+        SELECT customer_id FROM non_churn_customers
+    )
+    SELECT 
+        sd.customer_id,
+        sd.week_end_date,
+        sd.order_count,
+        sd.order_total, 
+        sd.discount_total,
+        sd.loyalty_earned,
+        sd.is_churn
+    FROM sample_data sd
+    JOIN selected_customers sc ON sd.customer_id = sc.customer_id
+    ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    # Convert datetime objects to strings for JSON serialization
+    for row in rows:
+        if 'week_end_date' in row and row['week_end_date']:
+            row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
+
+    return {"dataset": rows}
+
 @app.post("/predict-churn")
 def predict_churn(request: ChurnRequest):
     conn = mysql.connector.connect(

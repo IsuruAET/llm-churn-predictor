@@ -19,67 +19,158 @@ with tab1:
         non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=40, value=4)
 
     with col3:
-        model = st.selectbox(
-            "Select Model",
-            ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4", "gpt-4-turbo", "gpt-4o"],
-            index=0,
-            help="Choose the OpenAI model for prediction"
-        )
+        st.write("")  # Empty space to align with other columns
+        st.write("")  # Empty space to align with other columns
 
-    # Custom prompt section
-    st.subheader("📝 Custom Prompt (Optional)")
-    custom_prompt = st.text_area(
-        "Additional Instructions",
-        value="",
-        height=150,
-        help="Add additional instructions to append to the default prompt. Leave empty to use only default prompt."
-    )
+    # Initialize session state for dataset
+    if 'dataset_loaded' not in st.session_state:
+        st.session_state.dataset_loaded = False
+    if 'dataset_data' not in st.session_state:
+        st.session_state.dataset_data = None
+    if 'last_churn_count' not in st.session_state:
+        st.session_state.last_churn_count = churn_count
+    if 'last_non_churn_count' not in st.session_state:
+        st.session_state.last_non_churn_count = non_churn_count
 
-    if st.button("Predict Churn"):
-        with st.spinner("Processing..."):
-            res = requests.post("http://localhost:8000/predict-churn", json={
-                "churn_count": churn_count,
-                "non_churn_count": non_churn_count,
-                "model": model,
-                "custom_prompt": custom_prompt if custom_prompt.strip() else None
-            })
+    # Check if inputs have changed and reset dataset if needed
+    if (st.session_state.last_churn_count != churn_count or 
+        st.session_state.last_non_churn_count != non_churn_count):
+        st.session_state.dataset_loaded = False
+        st.session_state.dataset_data = None
+        st.session_state.last_churn_count = churn_count
+        st.session_state.last_non_churn_count = non_churn_count
 
-            if res.status_code == 200:
-                data = res.json()
-                st.success("✅ Prediction complete!")
+    # Load Data button
+    if st.button("📊 Load Data"):
+        with st.spinner("Loading dataset..."):
+            dataset_res = requests.get(f"http://localhost:8000/dataset?churn_count={churn_count}&non_churn_count={non_churn_count}")
+            
+            if dataset_res.status_code == 200:
+                dataset_data = dataset_res.json()
                 
-                # Display usage information
-                if "usage" in data:
-                    usage = data["usage"]
-                    st.info(f"**Model:** {usage['model']} | **Total Cost:** ${usage['total_cost']:.6f}")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Input Tokens", usage['input_tokens'])
-                    with col2:
-                        st.metric("Output Tokens", usage['output_tokens'])
-                    with col3:
-                        st.metric("Total Tokens", usage['total_tokens'])
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write("**Actual Churned Customers:**")
-                    if data["actual_churned_customers"]:
-                        for customer_id in data["actual_churned_customers"]:
-                            st.write(f"- {customer_id}")
-                    else:
-                        st.write("No actual churned customers in sample")
-                
-                with col2:
-                    st.write("**Predicted Churned Customers:**")
-                    if data["churned_customers"]:
-                        for customer_id in data["churned_customers"]:
-                            st.write(f"- {customer_id}")
-                    else:
-                        st.write("No customers predicted to churn")
+                if dataset_data["dataset"]:
+                    st.session_state.dataset_data = dataset_data
+                    st.session_state.dataset_loaded = True
+                    st.success("✅ Dataset loaded successfully!")
+                else:
+                    st.warning("No dataset found")
             else:
-                st.error("❌ Failed to get predictions")
+                st.error("❌ Failed to load dataset")
+
+    # Display dataset if loaded
+    if st.session_state.dataset_loaded and st.session_state.dataset_data:
+        st.subheader("📊 Dataset Used for Prediction")
+        df_dataset = pd.DataFrame(st.session_state.dataset_data["dataset"])
+        
+        # Add churn status column for better visualization
+        df_dataset['Churn Status'] = df_dataset['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
+        
+        # Reorder columns for better display
+        display_columns = ['customer_id', 'Churn Status', 'week_end_date', 'order_count', 'order_total', 'discount_total', 'loyalty_earned']
+        df_display = df_dataset[display_columns].copy()
+        df_display.columns = ['Customer ID', 'Churn Status', 'Week End Date', 'Order Count', 'Order Total', 'Discount Total', 'Loyalty Earned']
+        
+        # Display all data in one datagrid
+        st.dataframe(df_display, use_container_width=True)
+        
+        # Show summary stats
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Total Records", len(df_dataset))
+        with col2:
+            churned_records = df_dataset['is_churn'].sum()
+            st.metric("Churned Records", churned_records)
+        with col3:
+            active_records = len(df_dataset) - churned_records
+            st.metric("Active Records", active_records)
+        with col4:
+            # Calculate unique customer counts
+            unique_customers = df_dataset['customer_id'].nunique()
+            st.metric("Unique Customers", unique_customers)
+        with col5:
+            # Calculate churn distribution (unique customers)
+            churned_customers = df_dataset[df_dataset['is_churn'] == 1]['customer_id'].nunique()
+            active_customers = unique_customers - churned_customers
+            churn_distribution = f"{churned_customers}:{active_customers}"
+            st.metric("Churn Distribution", churn_distribution, help="Churned:Active customers")
+
+    # Predict Churn button (only show if data is loaded)
+    if st.session_state.dataset_loaded:
+        st.write("---")
+        
+        # Churn Prediction section
+        st.subheader("🔮 Churn Prediction")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            model = st.selectbox(
+                "Select Model",
+                ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4", "gpt-4-turbo", "gpt-4o"],
+                index=0,
+                help="Choose the OpenAI model for prediction"
+            )
+        
+        with col2:
+            st.write("")  # Empty space to align with model selector
+        
+        # Custom prompt section
+        st.subheader("📝 Custom Prompt (Optional)")
+        custom_prompt = st.text_area(
+            "Additional Instructions",
+            value="",
+            height=150,
+            help="Add additional instructions to append to the default prompt. Leave empty to use only default prompt."
+        )
+        
+        if st.button("🔮 Predict Churn"):
+            with st.spinner("Processing prediction..."):
+                # Make the prediction
+                res = requests.post("http://localhost:8000/predict-churn", json={
+                    "churn_count": churn_count,
+                    "non_churn_count": non_churn_count,
+                    "model": model,
+                    "custom_prompt": custom_prompt if custom_prompt.strip() else None
+                })
+
+                if res.status_code == 200:
+                    data = res.json()
+                    st.success("✅ Prediction complete!")
+                    
+                    # Display usage information
+                    if "usage" in data:
+                        usage = data["usage"]
+                        st.info(f"**Model:** {usage['model']} | **Total Cost:** ${usage['total_cost']:.6f}")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Input Tokens", usage['input_tokens'])
+                        with col2:
+                            st.metric("Output Tokens", usage['output_tokens'])
+                        with col3:
+                            st.metric("Total Tokens", usage['total_tokens'])
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Actual Churned Customers:**")
+                        if data["actual_churned_customers"]:
+                            for customer_id in data["actual_churned_customers"]:
+                                st.write(f"- {customer_id}")
+                        else:
+                            st.write("No actual churned customers in sample")
+                    
+                    with col2:
+                        st.write("**Predicted Churned Customers:**")
+                        if data["churned_customers"]:
+                            for customer_id in data["churned_customers"]:
+                                st.write(f"- {customer_id}")
+                        else:
+                            st.write("No customers predicted to churn")
+                else:
+                    st.error("❌ Failed to get predictions")
+    else:
+        st.info("👆 Click 'Load Data' to fetch the dataset first")
 
 import streamlit as st
 import pandas as pd
