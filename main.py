@@ -445,16 +445,17 @@ def predict_churn(request: ChurnRequest):
         "role": "system",
         "content": (
             "You are a churn prediction analyst.\n"
-            "Given weekly order history per customer, identify which customers are likely to churn next week.\n"
+            "Given weekly order history per customer up to 2025-04-01, identify which customers are likely to churn in the week following 2025-04-01.\n"
             "Only return a list of customer_ids who are likely to churn."
         )
     }
 
     default_content = (
-        f"Here is the recent weekly order data (last 20 weeks) for multiple customers.\n"
+        f"Here is the weekly order data for the past 20 weeks leading up to 2025-04-01 for multiple customers.\n"
         f"---\n{all_customers_text}\n---\n"
         f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
-        f"Which customers will churn next week? Respond with a list of customer_ids only."
+        f"Based on this historical pattern analysis, which customers will churn in the week of 2025-04-08? Respond with a list of customer_ids only."
+        f"\n\nNote: Use the 20 weeks of data ending on 2025-04-01 to identify customers at risk of churning in the following week."
     )
     
     user_message = {
@@ -469,14 +470,16 @@ def predict_churn(request: ChurnRequest):
         response = client.chat.completions.create(
             model=request.model,
             messages=[system_message, user_message],
-            max_completion_tokens=300
+            max_completion_tokens=1000,  # Increase from 300 to 1000
+            response_format={"type": "text"},
+            seed=42
         )
     else:
         response = client.chat.completions.create(
             model=request.model,
             messages=[system_message, user_message],
             temperature=0.0,
-            max_tokens=300
+            max_tokens=1000
         )
 
     output = response.choices[0].message.content.strip()
