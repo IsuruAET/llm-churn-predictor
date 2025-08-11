@@ -470,7 +470,7 @@ def predict_churn(request: ChurnRequest):
         response = client.chat.completions.create(
             model=request.model,
             messages=[system_message, user_message],
-            max_completion_tokens=1000,  # Increase from 300 to 1000
+            max_completion_tokens=5000,  # Increase from 300 to 1000
             response_format={"type": "text"},
             seed=42
         )
@@ -479,7 +479,7 @@ def predict_churn(request: ChurnRequest):
             model=request.model,
             messages=[system_message, user_message],
             temperature=0.0,
-            max_tokens=1000
+            max_tokens=300
         )
 
     output = response.choices[0].message.content.strip()
