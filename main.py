@@ -41,7 +41,8 @@ MODEL_PRICING = {
     "gpt-4": {"input": 0.03, "output": 0.06},
     "gpt-4-turbo": {"input": 0.01, "output": 0.03},
     "gpt-4o": {"input": 0.0025, "output": 0.01},
-    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006}
+    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "gpt-5": {"input": 0.005, "output": 0.015}
 }
 
 def log_prediction_to_csv(data):
@@ -463,12 +464,20 @@ def predict_churn(request: ChurnRequest):
         )
     }
 
-    response = client.chat.completions.create(
-        model=request.model,
-        messages=[system_message, user_message],
-        temperature=0.0,
-        max_tokens=300
-    )
+    # Use max_completion_tokens for GPT-5, max_tokens for other models
+    if request.model == "gpt-5":
+        response = client.chat.completions.create(
+            model=request.model,
+            messages=[system_message, user_message],
+            max_completion_tokens=300
+        )
+    else:
+        response = client.chat.completions.create(
+            model=request.model,
+            messages=[system_message, user_message],
+            temperature=0.0,
+            max_tokens=300
+        )
 
     output = response.choices[0].message.content.strip()
     predicted_ids = list(set(re.findall(r"[a-f0-9\\-]{36}", output)))  # Remove duplicates

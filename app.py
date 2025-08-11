@@ -143,7 +143,7 @@ with tab1:
         with col1:
             model = st.selectbox(
                 "Select Model",
-                ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4", "gpt-4-turbo", "gpt-4o"],
+                ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-5"],
                 index=0,
                 help="Choose the OpenAI model for prediction"
             )
