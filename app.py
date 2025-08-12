@@ -357,10 +357,19 @@ with tab2:
                             axis=1
                         )
                         
-                        # Reorder columns to put Accuracy after False Positives
+                        # Calculate recall for each row: Matched / (Matched + Mismatched)
+                        df['Recall'] = df.apply(
+                            lambda row: f"{(row['Matched'] / (row['Matched'] + row['Mismatched']) * 100):.1f}%" 
+                            if (row['Matched'] + row['Mismatched']) > 0 else "0.0%", 
+                            axis=1
+                        )
+                        
+                        # Reorder columns to put Accuracy after False Positives, then Recall after Accuracy
                         cols = list(df.columns)
                         false_positives_idx = cols.index('False Positives')
                         cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
+                        accuracy_idx = cols.index('Accuracy')
+                        cols.insert(accuracy_idx + 1, cols.pop(cols.index('Recall')))
                         df = df[cols]
 
                     col1, col2, col3, col4, col5 = st.columns(5)
