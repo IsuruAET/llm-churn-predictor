@@ -12,6 +12,7 @@ from typing import Optional
 import csv
 from datetime import datetime, date, timedelta
 import pandas as pd
+import time
 
 load_dotenv()
 
@@ -85,7 +86,7 @@ def log_prediction_to_csv(data):
                 'Actual Non Churn Customer IDs', 'Predicted Churn Customer IDs', 
                 'Predicted Non Churn Customer IDs', 'Matched', 'Mismatched', 
                 'False Positives', 'Input Tokens', 'Output Tokens', 
-                'Total Tokens', 'Model', 'Total Cost', 'Additional Prompt', 'Given Date', 'Number of Weeks'
+                'Total Tokens', 'Model', 'Total Cost', 'Response Time (seconds)', 'Additional Prompt', 'Given Date', 'Number of Weeks'
             ])
         
         # Calculate metrics
@@ -123,6 +124,7 @@ def log_prediction_to_csv(data):
             data['usage']['total_tokens'],
             data['usage']['model'],
             data['usage']['total_cost'],
+            data.get('response_time', ''),
             data.get('custom_prompt', ''),
             data.get('given_date', ''),
             data.get('num_weeks', '')
@@ -592,6 +594,7 @@ def predict_churn(request: ChurnRequest):
     total_input_tokens = 0
     total_output_tokens = 0
     total_cost = 0.0
+    total_response_time = 0.0
     
     default_content_prefix = (
         f"Here is the weekly order data for the past {request.num_weeks} weeks leading up to {request.given_date} for multiple customers.\n"
@@ -614,6 +617,9 @@ def predict_churn(request: ChurnRequest):
             )
         }
         
+        # Start timing for this chunk
+        chunk_start_time = time.time()
+        
         # Use max_completion_tokens for GPT-5, max_tokens for other models
         if request.model == "gpt-5":
             response = client.chat.completions.create(
@@ -630,6 +636,11 @@ def predict_churn(request: ChurnRequest):
                 temperature=0.0,
                 max_tokens=300
             )
+        
+        # End timing for this chunk
+        chunk_end_time = time.time()
+        chunk_response_time = chunk_end_time - chunk_start_time
+        total_response_time += chunk_response_time
         
         # Extract predicted IDs from this chunk
         chunk_output = response.choices[0].message.content.strip()
@@ -672,6 +683,7 @@ def predict_churn(request: ChurnRequest):
             "total_cost": round(total_cost, 6),
             "model": request.model
         },
+        "response_time": round(total_response_time, 3),
         "custom_prompt": request.custom_prompt,
         "given_date": request.given_date,
         "num_weeks": request.num_weeks

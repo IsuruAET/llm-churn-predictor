@@ -14,10 +14,10 @@ with tab1:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=50)
+        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=3)
 
     with col2:
-        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=200)
+        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=12)
 
     with col3:
         # Default to today's date
