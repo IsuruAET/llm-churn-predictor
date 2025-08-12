@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import re
 from typing import Optional
 import csv
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import pandas as pd
 
 load_dotenv()
@@ -31,6 +31,8 @@ client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 class ChurnRequest(BaseModel):
     churn_count: int
     non_churn_count: int
+    given_date: str = date.today().strftime('%Y-%m-%d')  # Default to today
+    num_weeks: int = 20  # Default to 20 weeks
     model: str = "gpt-3.5-turbo"
     custom_prompt: Optional[str] = None
     shuffled_data: Optional[list] = None  # Add support for shuffled data
@@ -60,7 +62,7 @@ def log_prediction_to_csv(data):
                 'Actual Non Churn Customer IDs', 'Predicted Churn Customer IDs', 
                 'Predicted Non Churn Customer IDs', 'Matched', 'Mismatched', 
                 'False Positives', 'Input Tokens', 'Output Tokens', 
-                'Total Tokens', 'Model', 'Total Cost', 'Additional Prompt'
+                'Total Tokens', 'Model', 'Total Cost', 'Additional Prompt', 'Given Date', 'Number of Weeks'
             ])
         
         # Calculate metrics
@@ -98,7 +100,9 @@ def log_prediction_to_csv(data):
             data['usage']['total_tokens'],
             data['usage']['model'],
             data['usage']['total_cost'],
-            data.get('custom_prompt', '')
+            data.get('custom_prompt', ''),
+            data.get('given_date', ''),
+            data.get('num_weeks', '')
         ])
 
 @app.get("/prediction-logs")
@@ -212,153 +216,13 @@ def delete_prediction_log(row_index: int):
         return {"error": f"Failed to delete row: {str(e)}"}
 
 @app.get("/dataset")
-def get_dataset(churn_count: int = 1, non_churn_count: int = 4):
+def get_dataset(churn_count: int = 1, non_churn_count: int = 4, given_date: str = None, num_weeks: int = 20):
     """Get the dataset that will be used for prediction"""
-    conn = mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        database=os.getenv("DB_NAME")
-    )
-    cursor = conn.cursor(dictionary=True)
-
-    query = f"""
-    WITH churn_customers AS (
-        SELECT customer_id
-        FROM (
-            SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data_2025_04_01
-            WHERE is_churn = 1
-            GROUP BY customer_id
-            ORDER BY last_week DESC
-            LIMIT {churn_count}
-        ) AS ordered_churn
-    ),
-    non_churn_customers AS (
-        SELECT customer_id
-        FROM (
-            SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data_2025_04_01
-            WHERE is_churn = 0
-            GROUP BY customer_id
-            ORDER BY last_week DESC
-            LIMIT {non_churn_count}
-        ) AS ordered_non_churn
-    ),
-    selected_customers AS (
-        SELECT customer_id FROM churn_customers
-        UNION ALL
-        SELECT customer_id FROM non_churn_customers
-    )
-    SELECT 
-        sd.customer_id,
-        sd.week_end_date,
-        sd.order_count,
-        sd.order_total, 
-        sd.discount_total,
-        sd.loyalty_earned,
-        sd.is_churn
-    FROM sample_data_2025_04_01 sd
-    JOIN selected_customers sc ON sd.customer_id = sc.customer_id
-    ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
-    """
-
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    # Convert datetime objects to strings for JSON serialization
-    for row in rows:
-        if 'week_end_date' in row and row['week_end_date']:
-            row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
-
-    return {"dataset": rows}
-
-@app.get("/dataset/shuffled")
-def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4):
-    """Get the dataset with customer groups shuffled"""
-    conn = mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        database=os.getenv("DB_NAME")
-    )
-    cursor = conn.cursor(dictionary=True)
-
-    query = f"""
-    WITH churn_customers AS (
-        SELECT customer_id
-        FROM (
-            SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data_2025_04_01
-            WHERE is_churn = 1
-            GROUP BY customer_id
-            ORDER BY last_week DESC
-            LIMIT {churn_count}
-        ) AS ordered_churn
-    ),
-    non_churn_customers AS (
-        SELECT customer_id
-        FROM (
-            SELECT customer_id, MAX(week_end_date) AS last_week
-            FROM sample_data_2025_04_01
-            WHERE is_churn = 0
-            GROUP BY customer_id
-            ORDER BY last_week DESC
-            LIMIT {non_churn_count}
-        ) AS ordered_non_churn
-    ),
-    selected_customers AS (
-        SELECT customer_id FROM churn_customers
-        UNION ALL
-        SELECT customer_id FROM non_churn_customers
-    )
-    SELECT 
-        sd.customer_id,
-        sd.week_end_date,
-        sd.order_count,
-        sd.order_total, 
-        sd.discount_total,
-        sd.loyalty_earned,
-        sd.is_churn
-    FROM sample_data_2025_04_01 sd
-    JOIN selected_customers sc ON sd.customer_id = sc.customer_id
-    ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
-    """
-
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    # Convert datetime objects to strings for JSON serialization
-    for row in rows:
-        if 'week_end_date' in row and row['week_end_date']:
-            row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
-
-    # Group data by customer_id
-    grouped_data = defaultdict(list)
-    for row in rows:
-        grouped_data[row['customer_id']].append(row)
-
-    # Shuffle the customer groups
-    customer_ids = list(grouped_data.keys())
-    random.shuffle(customer_ids)
-
-    # Reconstruct the dataset with shuffled order
-    shuffled_rows = []
-    for customer_id in customer_ids:
-        shuffled_rows.extend(grouped_data[customer_id])
-
-    return {"dataset": shuffled_rows}
-
-@app.post("/predict-churn")
-def predict_churn(request: ChurnRequest):
-    # Use shuffled data if provided, otherwise fetch from database
-    if request.shuffled_data:
-        rows = request.shuffled_data
-    else:
+    # Use provided given_date or default to today
+    if given_date is None:
+        given_date = date.today().strftime('%Y-%m-%d')
+    
+    try:
         conn = mysql.connector.connect(
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
@@ -367,56 +231,290 @@ def predict_churn(request: ChurnRequest):
         )
         cursor = conn.cursor(dictionary=True)
 
-        query = f"""
-        WITH churn_customers AS (
-            SELECT customer_id
-            FROM (
-                SELECT customer_id, MAX(week_end_date) AS last_week
-                FROM sample_data_2025_04_01
-                WHERE is_churn = 1
-                GROUP BY customer_id
-                ORDER BY last_week DESC
-                LIMIT {request.churn_count}
-            ) AS ordered_churn
-        ),
-        non_churn_customers AS (
-            SELECT customer_id
-            FROM (
-                SELECT customer_id, MAX(week_end_date) AS last_week
-                FROM sample_data_2025_04_01
-                WHERE is_churn = 0
-                GROUP BY customer_id
-                ORDER BY last_week DESC
-                LIMIT {request.non_churn_count}
-            ) AS ordered_non_churn
-        ),
-        selected_customers AS (
-            SELECT customer_id FROM churn_customers
-            UNION ALL
-            SELECT customer_id FROM non_churn_customers
-        )
-        SELECT 
-            sd.customer_id,
-            sd.week_end_date,
-            sd.order_count,
-            sd.order_total, 
-            sd.discount_total,
-            sd.loyalty_earned,
-            sd.is_churn
-        FROM sample_data_2025_04_01 sd
-        JOIN selected_customers sc ON sd.customer_id = sc.customer_id
-        ORDER BY sd.is_churn, sd.customer_id, sd.week_end_date DESC
-        """
+        # Check if the table exists
+        cursor.execute("SHOW TABLES LIKE 'customer_tx_weekly'")
+        tables = cursor.fetchall()
+        if not tables:
+            return {"error": "Table 'customer_tx_weekly' not found", "dataset": []}
+        
+        # Check date range in the table and adjust if needed
+        cursor.execute("SELECT MAX(week_end_date) as max_date FROM customer_tx_weekly")
+        date_range = cursor.fetchone()
+        if date_range and date_range['max_date']:
+            if given_date > date_range['max_date'].strftime('%Y-%m-%d'):
+                given_date = date_range['max_date'].strftime('%Y-%m-%d')
 
+        # Main query to get data
+        query = f"""
+        SELECT 
+            t.customer_id,
+            t.week_end_date,
+            t.order_count,
+            t.order_total, 
+            t.discount_total,
+            t.loyalty_earned,
+            CASE 
+                WHEN DATEDIFF('{given_date}', COALESCE(last_orders.last_order_date, '1900-01-01')) > 90 THEN 1
+                ELSE 0
+            END AS is_churn
+        FROM customer_tx_weekly t
+        LEFT JOIN (
+            SELECT 
+                customer_id,
+                MAX(week_end_date) AS last_order_date
+            FROM customer_tx_weekly
+            WHERE week_end_date <= '{given_date}'
+            GROUP BY customer_id
+        ) AS last_orders ON t.customer_id = last_orders.customer_id
+        WHERE t.week_end_date BETWEEN DATE_SUB('{given_date}', INTERVAL {num_weeks} WEEK) AND '{given_date}'
+        ORDER BY is_churn DESC, t.customer_id, t.week_end_date DESC
+        """
+        
         cursor.execute(query)
-        rows = cursor.fetchall()
+        all_rows = cursor.fetchall()
+        
+        if not all_rows:
+            cursor.close()
+            conn.close()
+            return {"error": "No data found for the specified parameters", "dataset": []}
+
+        # Group by customer_id to get unique customers
+        customer_data = {}
+        for row in all_rows:
+            customer_id = row['customer_id']
+            if customer_id not in customer_data:
+                customer_data[customer_id] = []
+            customer_data[customer_id].append(row)
+        
+        # Separate churn and non-churn customers
+        churn_customers = []
+        non_churn_customers = []
+        
+        for customer_id, rows in customer_data.items():
+            is_churn = any(row['is_churn'] == 1 for row in rows)
+            if is_churn:
+                churn_customers.append(customer_id)
+            else:
+                non_churn_customers.append(customer_id)
+        
+        # Select the required number of customers
+        selected_churn = churn_customers[:churn_count]
+        selected_non_churn = non_churn_customers[:non_churn_count]
+        
+        # Get data for selected customers
+        selected_customers = selected_churn + selected_non_churn
+        final_rows = []
+        
+        for customer_id in selected_customers:
+            if customer_id in customer_data:
+                final_rows.extend(customer_data[customer_id])
+        
         cursor.close()
         conn.close()
 
         # Convert datetime objects to strings for JSON serialization
-        for row in rows:
+        for row in final_rows:
             if 'week_end_date' in row and row['week_end_date']:
                 row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
+
+        return {"dataset": final_rows}
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}", "dataset": []}
+
+@app.get("/dataset/shuffled")
+def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4, given_date: str = None, num_weeks: int = 20):
+    """Get the dataset with customer groups shuffled"""
+    # Use provided given_date or default to today
+    if given_date is None:
+        given_date = date.today().strftime('%Y-%m-%d')
+    
+    try:
+        conn = mysql.connector.connect(
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
+            database=os.getenv("DB_NAME")
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        # Check if the table exists
+        cursor.execute("SHOW TABLES LIKE 'customer_tx_weekly'")
+        tables = cursor.fetchall()
+        if not tables:
+            return {"error": "Table 'customer_tx_weekly' not found", "dataset": []}
+        
+        # Check date range in the table and adjust if needed
+        cursor.execute("SELECT MAX(week_end_date) as max_date FROM customer_tx_weekly")
+        date_range = cursor.fetchone()
+        if date_range and date_range['max_date']:
+            if given_date > date_range['max_date'].strftime('%Y-%m-%d'):
+                given_date = date_range['max_date'].strftime('%Y-%m-%d')
+
+        # Main query to get data
+        query = f"""
+        SELECT 
+            t.customer_id,
+            t.week_end_date,
+            t.order_count,
+            t.order_total, 
+            t.discount_total,
+            t.loyalty_earned,
+            CASE 
+                WHEN DATEDIFF('{given_date}', COALESCE(last_orders.last_order_date, '1900-01-01')) > 90 THEN 1
+                ELSE 0
+            END AS is_churn
+        FROM customer_tx_weekly t
+        LEFT JOIN (
+            SELECT 
+                customer_id,
+                MAX(week_end_date) AS last_order_date
+            FROM customer_tx_weekly
+            WHERE week_end_date <= '{given_date}'
+            GROUP BY customer_id
+        ) AS last_orders ON t.customer_id = last_orders.customer_id
+        WHERE t.week_end_date BETWEEN DATE_SUB('{given_date}', INTERVAL {num_weeks} WEEK) AND '{given_date}'
+        ORDER BY is_churn DESC, t.customer_id, t.week_end_date DESC
+        """
+        
+        cursor.execute(query)
+        all_rows = cursor.fetchall()
+        
+        if not all_rows:
+            cursor.close()
+            conn.close()
+            return {"error": "No data found for the specified parameters", "dataset": []}
+
+        # Group data by customer_id
+        grouped_data = defaultdict(list)
+        for row in all_rows:
+            grouped_data[row['customer_id']].append(row)
+
+        # Shuffle the customer groups
+        customer_ids = list(grouped_data.keys())
+        random.shuffle(customer_ids)
+
+        # Reconstruct the dataset with shuffled order
+        shuffled_rows = []
+        for customer_id in customer_ids:
+            shuffled_rows.extend(grouped_data[customer_id])
+
+        cursor.close()
+        conn.close()
+
+        # Convert datetime objects to strings for JSON serialization
+        for row in shuffled_rows:
+            if 'week_end_date' in row and row['week_end_date']:
+                row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
+
+        return {"dataset": shuffled_rows}
+        
+    except Exception as e:
+        return {"error": f"Database error: {str(e)}", "dataset": []}
+
+@app.post("/predict-churn")
+def predict_churn(request: ChurnRequest):
+    # Use shuffled data if provided, otherwise fetch from database
+    if request.shuffled_data:
+        rows = request.shuffled_data
+    else:
+        try:
+            conn = mysql.connector.connect(
+                host=os.getenv("DB_HOST"),
+                user=os.getenv("DB_USER"),
+                password=os.getenv("DB_PASS"),
+                database=os.getenv("DB_NAME")
+            )
+            cursor = conn.cursor(dictionary=True)
+
+            # Check if the table exists
+            cursor.execute("SHOW TABLES LIKE 'customer_tx_weekly'")
+            tables = cursor.fetchall()
+            if not tables:
+                return {"error": "Table 'customer_tx_weekly' not found", "dataset": []}
+            
+            # Check date range in the table and adjust if needed
+            cursor.execute("SELECT MAX(week_end_date) as max_date FROM customer_tx_weekly")
+            date_range = cursor.fetchone()
+            if date_range and date_range['max_date']:
+                if request.given_date > date_range['max_date'].strftime('%Y-%m-%d'):
+                    request.given_date = date_range['max_date'].strftime('%Y-%m-%d')
+
+            # Main query to get data
+            query = f"""
+            SELECT 
+                t.customer_id,
+                t.week_end_date,
+                t.order_count,
+                t.order_total, 
+                t.discount_total,
+                t.loyalty_earned,
+                CASE 
+                    WHEN DATEDIFF('{request.given_date}', COALESCE(last_orders.last_order_date, '1900-01-01')) > 90 THEN 1
+                    ELSE 0
+                END AS is_churn
+            FROM customer_tx_weekly t
+            LEFT JOIN (
+                SELECT 
+                    customer_id,
+                    MAX(week_end_date) AS last_order_date
+                FROM customer_tx_weekly
+                WHERE week_end_date <= '{request.given_date}'
+                GROUP BY customer_id
+            ) AS last_orders ON t.customer_id = last_orders.customer_id
+            WHERE t.week_end_date BETWEEN DATE_SUB('{request.given_date}', INTERVAL {request.num_weeks} WEEK) AND '{request.given_date}'
+            ORDER BY is_churn DESC, t.customer_id, t.week_end_date DESC
+            """
+            
+            cursor.execute(query)
+            all_rows = cursor.fetchall()
+            
+            if not all_rows:
+                cursor.close()
+                conn.close()
+                return {"error": "No data found for the specified parameters", "dataset": []}
+
+            # Group by customer_id to get unique customers
+            customer_data = {}
+            for row in all_rows:
+                customer_id = row['customer_id']
+                if customer_id not in customer_data:
+                    customer_data[customer_id] = []
+                customer_data[customer_id].append(row)
+            
+            # Separate churn and non-churn customers
+            churn_customers = []
+            non_churn_customers = []
+            
+            for customer_id, rows in customer_data.items():
+                is_churn = any(row['is_churn'] == 1 for row in rows)
+                if is_churn:
+                    churn_customers.append(customer_id)
+                else:
+                    non_churn_customers.append(customer_id)
+            
+            # Select the required number of customers
+            selected_churn = churn_customers[:request.churn_count]
+            selected_non_churn = non_churn_customers[:request.non_churn_count]
+            
+            # Get data for selected customers
+            selected_customers = selected_churn + selected_non_churn
+            rows = []
+            
+            for customer_id in selected_customers:
+                if customer_id in customer_data:
+                    rows.extend(customer_data[customer_id])
+            
+            cursor.close()
+            conn.close()
+
+            # Convert datetime objects to strings for JSON serialization
+            for row in rows:
+                if 'week_end_date' in row and row['week_end_date']:
+                    row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
+                    
+        except Exception as e:
+            return {"error": f"Database error: {str(e)}", "dataset": []}
 
     grouped_data = defaultdict(list)
     for row in rows:
@@ -441,21 +539,25 @@ def predict_churn(request: ChurnRequest):
     with open('customer_data.csv', 'w') as f:
         f.write(all_customers_text)
 
+    # Calculate the prediction target date (next week after given_date)
+    given_date_obj = datetime.strptime(request.given_date, '%Y-%m-%d').date()
+    prediction_target_date = (given_date_obj + timedelta(days=7)).strftime('%Y-%m-%d')
+
     system_message = {
         "role": "system",
         "content": (
             "You are a churn prediction analyst.\n"
-            "Given weekly order history per customer up to 2025-04-01, identify which customers are likely to churn in the week following 2025-04-01.\n"
+            f"Given weekly order history per customer up to {request.given_date}, identify which customers are likely to churn in the week following {request.given_date}.\n"
             "Only return a list of customer_ids who are likely to churn."
         )
     }
 
     default_content = (
-        f"Here is the weekly order data for the past 20 weeks leading up to 2025-04-01 for multiple customers.\n"
+        f"Here is the weekly order data for the past {request.num_weeks} weeks leading up to {request.given_date} for multiple customers.\n"
         f"---\n{all_customers_text}\n---\n"
         f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
-        f"Based on this historical pattern analysis, which customers will churn in the week of 2025-04-08? Respond with a list of customer_ids only."
-        f"\n\nNote: Use the 20 weeks of data ending on 2025-04-01 to identify customers at risk of churning in the following week."
+        f"Based on this historical pattern analysis, which customers will churn in the week of {prediction_target_date}? Respond with a list of customer_ids only."
+        f"\n\nNote: Use the {request.num_weeks} weeks of data ending on {request.given_date} to identify customers at risk of churning in the following week."
     )
     
     user_message = {
@@ -515,7 +617,9 @@ def predict_churn(request: ChurnRequest):
             "total_cost": round(total_cost, 6),
             "model": response.model
         },
-        "custom_prompt": request.custom_prompt
+        "custom_prompt": request.custom_prompt,
+        "given_date": request.given_date,
+        "num_weeks": request.num_weeks
     }
 
     # Log prediction to CSV

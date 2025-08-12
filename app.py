@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+from datetime import date, timedelta
 
 st.set_page_config(page_title="Churn Predictor LLM", layout="wide")
 
@@ -10,7 +11,7 @@ tab1, tab2 = st.tabs(["🔮 Predict Churn", "📊 Prediction Logs"])
 with tab1:
     st.title("🧠 Churn Prediction using OpenAI LLM")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=10, value=1)
@@ -19,8 +20,17 @@ with tab1:
         non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=40, value=4)
 
     with col3:
-        st.write("")  # Empty space to align with other columns
-        st.write("")  # Empty space to align with other columns
+        # Default to today's date
+        default_date = date.today()
+        given_date = st.date_input(
+            "Given Date",
+            value=default_date,
+            max_value=default_date,
+            help="The reference date for churn analysis"
+        )
+
+    with col4:
+        num_weeks = st.slider("Number of Weeks", min_value=10, max_value=52, value=20, help="Number of weeks of historical data to analyze")
 
     # Initialize session state for dataset
     if 'dataset_loaded' not in st.session_state:
@@ -33,37 +43,73 @@ with tab1:
         st.session_state.last_churn_count = churn_count
     if 'last_non_churn_count' not in st.session_state:
         st.session_state.last_non_churn_count = non_churn_count
+    if 'last_given_date' not in st.session_state:
+        st.session_state.last_given_date = given_date
+    if 'last_num_weeks' not in st.session_state:
+        st.session_state.last_num_weeks = num_weeks
 
     # Check if inputs have changed and reset dataset if needed
     if (st.session_state.last_churn_count != churn_count or 
-        st.session_state.last_non_churn_count != non_churn_count):
+        st.session_state.last_non_churn_count != non_churn_count or
+        st.session_state.last_given_date != given_date or
+        st.session_state.last_num_weeks != num_weeks):
         st.session_state.dataset_loaded = False
         st.session_state.dataset_data = None
         st.session_state.original_dataset_data = None
         st.session_state.last_churn_count = churn_count
         st.session_state.last_non_churn_count = non_churn_count
+        st.session_state.last_given_date = given_date
+        st.session_state.last_num_weeks = num_weeks
 
     # Load Data button
     if st.button("📊 Load Data"):
         with st.spinner("Loading dataset..."):
-            dataset_res = requests.get(f"http://localhost:8000/dataset?churn_count={churn_count}&non_churn_count={non_churn_count}")
+            dataset_res = requests.get(
+                f"http://localhost:8000/dataset",
+                params={
+                    "churn_count": churn_count,
+                    "non_churn_count": non_churn_count,
+                    "given_date": given_date.strftime('%Y-%m-%d'),
+                    "num_weeks": num_weeks
+                }
+            )
             
             if dataset_res.status_code == 200:
                 dataset_data = dataset_res.json()
                 
-                if dataset_data["dataset"]:
-                    st.session_state.dataset_data = dataset_data
-                    st.session_state.original_dataset_data = dataset_data  # Store original data
-                    st.session_state.dataset_loaded = True
-                    st.success("✅ Dataset loaded successfully!")
+                if dataset_data.get("error"):
+                    st.error(f"❌ {dataset_data['error']}")
+                elif dataset_data.get("dataset"):
+                    if len(dataset_data["dataset"]) > 0:
+                        st.session_state.dataset_data = dataset_data
+                        st.session_state.original_dataset_data = dataset_data  # Store original data
+                        st.session_state.dataset_loaded = True
+                        st.success(f"✅ Dataset loaded successfully! Found {len(dataset_data['dataset'])} records")
+                    else:
+                        st.warning("No dataset found - empty result")
                 else:
-                    st.warning("No dataset found")
+                    st.warning("No dataset found - unexpected response format")
             else:
-                st.error("❌ Failed to load dataset")
+                st.error(f"❌ Failed to load dataset (HTTP {dataset_res.status_code})")
+                try:
+                    error_data = dataset_res.json()
+                    st.error(f"Error details: {error_data}")
+                except:
+                    st.error(f"Error text: {dataset_res.text}")
 
     # Display dataset if loaded
     if st.session_state.dataset_loaded and st.session_state.dataset_data:
         st.subheader("📊 Dataset Used for Prediction")
+        
+        # Display analysis parameters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"**Analysis Date:** {given_date.strftime('%Y-%m-%d')}")
+        with col2:
+            st.info(f"**Historical Weeks:** {num_weeks}")
+        with col3:
+            prediction_date = (given_date + timedelta(days=7)).strftime('%Y-%m-%d')
+            st.info(f"**Prediction Target:** {prediction_date}")
         
         # Shuffle and Reset buttons
         col1, col2, col3 = st.columns(3)
@@ -71,19 +117,37 @@ with tab1:
         with col1:
             if st.button("🔀 Shuffle Customer Groups"):
                 with st.spinner("Shuffling customer groups..."):
-                    shuffled_res = requests.get(f"http://localhost:8000/dataset/shuffled?churn_count={churn_count}&non_churn_count={non_churn_count}")
+                    shuffled_res = requests.get(
+                        f"http://localhost:8000/dataset/shuffled",
+                        params={
+                            "churn_count": churn_count,
+                            "non_churn_count": non_churn_count,
+                            "given_date": given_date.strftime('%Y-%m-%d'),
+                            "num_weeks": num_weeks
+                        }
+                    )
                     
                     if shuffled_res.status_code == 200:
                         shuffled_data = shuffled_res.json()
                         
-                        if shuffled_data["dataset"]:
-                            st.session_state.dataset_data = shuffled_data
-                            st.success("✅ Customer groups shuffled successfully!")
-                            st.rerun()
+                        if shuffled_data.get("error"):
+                            st.error(f"❌ {shuffled_data['error']}")
+                        elif shuffled_data.get("dataset"):
+                            if len(shuffled_data["dataset"]) > 0:
+                                st.session_state.dataset_data = shuffled_data
+                                st.success("✅ Customer groups shuffled successfully!")
+                                st.rerun()
+                            else:
+                                st.warning("No shuffled dataset found - empty result")
                         else:
-                            st.warning("No shuffled dataset found")
+                            st.warning("No shuffled dataset found - unexpected response format")
                     else:
-                        st.error("❌ Failed to shuffle dataset")
+                        st.error(f"❌ Failed to shuffle dataset (HTTP {shuffled_res.status_code})")
+                        try:
+                            error_data = shuffled_res.json()
+                            st.error(f"Error details: {error_data}")
+                        except:
+                            st.error(f"Error text: {shuffled_res.text}")
         
         with col2:
             if st.button("🔄 Reset to Original Order"):
@@ -153,11 +217,11 @@ with tab1:
         
         # Default prompt display
         st.subheader("📋 Default Prompt")
-        default_prompt_text = """You are a churn prediction analyst.
-Given weekly order history per customer, identify which customers are likely to churn next week.
+        default_prompt_text = f"""You are a churn prediction analyst.
+Given weekly order history per customer up to {given_date.strftime('%Y-%m-%d')}, identify which customers are likely to churn in the week following {given_date.strftime('%Y-%m-%d')}.
 Only return a list of customer_ids who are likely to churn.
 
-Here is the recent weekly order data (last 20 weeks) for multiple customers.
+Here is the recent weekly order data (last {num_weeks} weeks) for multiple customers.
 ---
 [Customer data will be inserted here]
 ---
@@ -187,6 +251,8 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                 request_data = {
                     "churn_count": churn_count,
                     "non_churn_count": non_churn_count,
+                    "given_date": given_date.strftime('%Y-%m-%d'),
+                    "num_weeks": num_weeks,
                     "model": model,
                     "custom_prompt": custom_prompt if custom_prompt.strip() else None
                 }
@@ -214,6 +280,14 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                             st.metric("Output Tokens", usage['output_tokens'])
                         with col3:
                             st.metric("Total Tokens", usage['total_tokens'])
+                    
+                    # Display analysis parameters used
+                    if "given_date" in data and "num_weeks" in data:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.info(f"**Analysis Date:** {data['given_date']}")
+                        with col2:
+                            st.info(f"**Historical Weeks:** {data['num_weeks']}")
                     
                     col1, col2 = st.columns(2)
                     
