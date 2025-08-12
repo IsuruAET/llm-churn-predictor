@@ -47,6 +47,29 @@ MODEL_PRICING = {
     "gpt-5": {"input": 0.005, "output": 0.015}
 }
 
+# Token limits for batching (conservative estimates)
+MAX_TOKENS_PER_REQUEST = 15000  # a bit less than 16385 to be safe
+MAX_CHARS_PER_CHUNK = 12000  # conservative character limit per chunk
+
+def chunk_customer_blocks(blocks, max_chars=MAX_CHARS_PER_CHUNK):
+    """Split customer blocks into chunks that fit under token limits"""
+    chunks, current_chunk = [], []
+    current_length = 0
+    
+    for block in blocks:
+        block_length = len(block)
+        if current_length + block_length > max_chars:
+            chunks.append("\n---\n".join(current_chunk))
+            current_chunk = []
+            current_length = 0
+        current_chunk.append(block)
+        current_length += block_length
+    
+    if current_chunk:
+        chunks.append("\n---\n".join(current_chunk))
+    
+    return chunks
+
 def log_prediction_to_csv(data):
     """Log prediction results to CSV file"""
     csv_file = 'prediction_logs.csv'
@@ -520,7 +543,7 @@ def predict_churn(request: ChurnRequest):
     for row in rows:
         grouped_data[row['customer_id']].append(row)
 
-    # Combine all customer data into one prompt
+    # Combine all customer data into blocks
     customer_blocks = []
     for customer_id, weeks in grouped_data.items():
         block = f"Customer ID: {customer_id}\n"
@@ -534,8 +557,8 @@ def predict_churn(request: ChurnRequest):
             )
         customer_blocks.append(block)
 
+    # Save all customer data to CSV
     all_customers_text = "\n---\n".join(customer_blocks)
-    # save csv
     with open('customer_data.csv', 'w') as f:
         f.write(all_customers_text)
 
@@ -552,70 +575,93 @@ def predict_churn(request: ChurnRequest):
         )
     }
 
-    default_content = (
+    # Split customer blocks into chunks
+    chunks = chunk_customer_blocks(customer_blocks)
+    
+    # Process each chunk separately
+    predicted_ids = set()
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cost = 0.0
+    
+    default_content_prefix = (
         f"Here is the weekly order data for the past {request.num_weeks} weeks leading up to {request.given_date} for multiple customers.\n"
-        f"---\n{all_customers_text}\n---\n"
+        f"---\n"
+    )
+    
+    default_content_suffix = (
+        f"\n---\n"
         f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
         f"Based on this historical pattern analysis, which customers will churn in the week of {prediction_target_date}? Respond with a list of customer_ids only."
         f"\n\nNote: Use the {request.num_weeks} weeks of data ending on {request.given_date} to identify customers at risk of churning in the following week."
     )
     
-    user_message = {
-        "role": "user",
-        "content": (
-            default_content + f"\n\n{request.custom_prompt}" if request.custom_prompt else default_content
-        )
-    }
-
-    # Use max_completion_tokens for GPT-5, max_tokens for other models
-    if request.model == "gpt-5":
-        response = client.chat.completions.create(
-            model=request.model,
-            messages=[system_message, user_message],
-            max_completion_tokens=5000,  # Increase from 300 to 1000
-            response_format={"type": "text"},
-            seed=42
-        )
-    else:
-        response = client.chat.completions.create(
-            model=request.model,
-            messages=[system_message, user_message],
-            temperature=0.0,
-            max_tokens=300
-        )
-
-    output = response.choices[0].message.content.strip()
-    predicted_ids = list(set(re.findall(r"[a-f0-9\\-]{36}", output)))  # Remove duplicates
+    for i, chunk_text in enumerate(chunks):
+        user_message = {
+            "role": "user",
+            "content": (
+                f"{default_content_prefix}{chunk_text}{default_content_suffix}"
+                f"{f'\n\n{request.custom_prompt}' if request.custom_prompt else ''}"
+            )
+        }
+        
+        # Use max_completion_tokens for GPT-5, max_tokens for other models
+        if request.model == "gpt-5":
+            response = client.chat.completions.create(
+                model=request.model,
+                messages=[system_message, user_message],
+                max_completion_tokens=5000,
+                response_format={"type": "text"},
+                seed=42
+            )
+        else:
+            response = client.chat.completions.create(
+                model=request.model,
+                messages=[system_message, user_message],
+                temperature=0.0,
+                max_tokens=300
+            )
+        
+        # Extract predicted IDs from this chunk
+        chunk_output = response.choices[0].message.content.strip()
+        chunk_predicted_ids = re.findall(r"[a-f0-9\-]{36}", chunk_output)
+        predicted_ids.update(chunk_predicted_ids)
+        
+        # Accumulate token usage and cost
+        total_input_tokens += response.usage.prompt_tokens
+        total_output_tokens += response.usage.completion_tokens
+        
+        # Calculate cost for this chunk
+        model_pricing = MODEL_PRICING.get(request.model, MODEL_PRICING["gpt-3.5-turbo"])
+        chunk_input_cost = (response.usage.prompt_tokens / 1000) * model_pricing["input"]
+        chunk_output_cost = (response.usage.completion_tokens / 1000) * model_pricing["output"]
+        total_cost += chunk_input_cost + chunk_output_cost
+    
+    # Convert set to list for final result
+    predicted_ids = list(predicted_ids)
 
     # Get actual churned customers from the selected sample
     actual_churned = [customer_id for customer_id, weeks in grouped_data.items() 
                      if any(w['is_churn'] == 1 for w in weeks)]
 
-    # Calculate cost based on selected model
-    input_tokens = response.usage.prompt_tokens
-    output_tokens = response.usage.completion_tokens
-    total_tokens = response.usage.total_tokens
-    
-    model_pricing = MODEL_PRICING.get(request.model, MODEL_PRICING["gpt-3.5-turbo"])
-    input_cost = (input_tokens / 1000) * model_pricing["input"]
-    output_cost = (output_tokens / 1000) * model_pricing["output"]
-    total_cost = input_cost + output_cost
+    # Use accumulated token counts and costs from batching
+    total_tokens = total_input_tokens + total_output_tokens
 
     # Prepare response data
     response_data = {
         "churned_customers": predicted_ids, 
         "actual_churned_customers": actual_churned,
-        "raw_output": output,
+        "raw_output": f"Processed {len(chunks)} chunks with batching. Total predicted churn customers: {len(predicted_ids)}",
         "total_customers": len(grouped_data),
         "all_customer_ids": list(grouped_data.keys()),
         "usage": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
             "total_tokens": total_tokens,
-            "input_cost": round(input_cost, 6),
-            "output_cost": round(output_cost, 6),
+            "input_cost": round(total_cost - (total_output_tokens / 1000) * MODEL_PRICING.get(request.model, MODEL_PRICING["gpt-3.5-turbo"])["output"], 6),
+            "output_cost": round((total_output_tokens / 1000) * MODEL_PRICING.get(request.model, MODEL_PRICING["gpt-3.5-turbo"])["output"], 6),
             "total_cost": round(total_cost, 6),
-            "model": response.model
+            "model": request.model
         },
         "custom_prompt": request.custom_prompt,
         "given_date": request.given_date,
