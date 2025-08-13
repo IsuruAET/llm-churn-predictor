@@ -176,48 +176,59 @@ def get_prediction_logs_csv():
         # Add row index column
         df['Row Index'] = df.index
         
-        # Calculate accuracy for each row and add it after False Positives column
+        # Calculate Real Churn Ratio from Churn Distribution
+        if 'Churn Distribution' in df.columns:
+            df['Real Churn Ratio'] = df['Churn Distribution'].apply(
+                lambda x: f"{x.split(':')[0]}:{x.split(':')[1]}" if ':' in str(x) else "0:0"
+            )
+        
+        # Calculate Predict Churn Ratio from predicted churn count vs predicted non-churn count
+        if 'Predicted Churn Customer IDs' in df.columns:
+            df['Predict Churn Ratio'] = df['Predicted Churn Customer IDs'].apply(
+                lambda x: f"{len([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])}:{df.loc[df['Predicted Churn Customer IDs'] == x, 'Total Customers'].iloc[0] - len([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])}"
+                if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else "0:0"
+            )
+        
+        # Calculate accuracy for each row
         if 'False Positives' in df.columns:
-            # Calculate accuracy: (Matched + (Total Customers - Matched - Mismatched - False Positives)) / Total Customers
             df['Accuracy'] = df.apply(
                 lambda row: f"{((row['Matched'] + (row['Total Customers'] - row['Matched'] - row['Mismatched'] - row['False Positives'])) / row['Total Customers'] * 100):.1f}%" 
                 if row['Total Customers'] > 0 else "0.0%", 
                 axis=1
             )
             
-            # Calculate recall for each row: Matched / (Matched + Mismatched)
+            # Calculate recall for each row
             df['Recall'] = df.apply(
                 lambda row: f"{(row['Matched'] / (row['Matched'] + row['Mismatched']) * 100):.1f}%" 
                 if (row['Matched'] + row['Mismatched']) > 0 else "0.0%", 
                 axis=1
             )
-            
-            # Reorder columns to put Accuracy after False Positives, then Recall after Accuracy
-            cols = list(df.columns)
-            false_positives_idx = cols.index('False Positives')
-            cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
-            accuracy_idx = cols.index('Accuracy')
-            cols.insert(accuracy_idx + 1, cols.pop(cols.index('Recall')))
-            df = df[cols]
         
-        # Reorder columns to put Row Index first
-        cols = ['Row Index'] + [col for col in df.columns if col != 'Row Index']
-        df = df[cols]
-        
-        # Process ID columns to format them properly for CSV download
-        id_columns = [
-            'Actual Churn Customer IDs',
-            'Actual Non Churn Customer IDs', 
-            'Predicted Churn Customer IDs',
-            'Predicted Non Churn Customer IDs'
+        # Define the exact column order from app.py
+        column_order = [
+            'Row Index',
+            'Model',
+            'Given Date',
+            'Total Customers',
+            'Real Churn Ratio',
+            'Predict Churn Ratio',
+            'Accuracy',
+            'Recall',
+            'Matched',
+            'Mismatched',
+            'False Positives',
+            'Input Tokens',
+            'Output Tokens',
+            'Total Tokens',
+            'Total Cost',
+            'Response Time (seconds)',
+            'Number of Weeks',
+            'Additional Prompt'
         ]
         
-        for col in id_columns:
-            if col in df.columns:
-                df[col] = df[col].apply(
-                    lambda x: '\n'.join([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])
-                    if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else ''
-                )
+        # Filter dataframe to only include the specified columns in the exact order
+        available_columns = [col for col in column_order if col in df.columns]
+        df = df[available_columns]
         
         # Convert to CSV string
         csv_content = df.to_csv(index=False)
