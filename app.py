@@ -14,10 +14,10 @@ with tab1:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=3)
+        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=1)
 
     with col2:
-        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=12)
+        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=4)
 
     with col3:
         # Default to today's date
@@ -227,6 +227,15 @@ with tab1:
         # Churn Prediction section
         st.subheader("🔮 Churn Prediction")
         
+        # Show which dataset will be used
+        if st.session_state.dataset_data == st.session_state.original_dataset_data:
+            st.info("📊 **Dataset:** Using original dataset order")
+        else:
+            st.info("📊 **Dataset:** Using shuffled dataset order")
+        
+        # Note: Dataset is always sent to backend for prediction
+        st.info("💡 **Note:** The current dataset (original or shuffled) will be sent to the backend for prediction.")
+        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -271,20 +280,22 @@ Which customers will churn next week? Respond with a list of customer_ids only."
         )
         
         if st.button("🔮 Predict Churn"):
+            # Validate that dataset is loaded
+            if not st.session_state.dataset_loaded or not st.session_state.dataset_data:
+                st.error("❌ Please load the dataset first before making predictions!")
+                st.stop()
+                
             with st.spinner("Processing prediction..."):
-                # Prepare request data with current dataset
+                # Always prepare request data with current dataset
                 request_data = {
                     "churn_count": churn_count,
                     "non_churn_count": non_churn_count,
                     "given_date": given_date.strftime('%Y-%m-%d'),
                     "num_weeks": num_weeks,
                     "model": model,
-                    "custom_prompt": custom_prompt if custom_prompt.strip() else None
+                    "custom_prompt": custom_prompt if custom_prompt.strip() else None,
+                    "data": st.session_state.dataset_data["dataset"]  # Always send current dataset (original or shuffled)
                 }
-                
-                # If we have shuffled data, send it to the backend
-                if st.session_state.dataset_data and st.session_state.dataset_data != st.session_state.original_dataset_data:
-                    request_data["shuffled_data"] = st.session_state.dataset_data["dataset"]
                 
                 # Make the prediction
                 res = requests.post("http://localhost:8000/predict-churn", json=request_data)
@@ -449,14 +460,6 @@ with tab2:
                     # Keep original df for CSV download (with ID lists)
                     df_csv = df.copy()
                     
-                    # Convert comma-separated IDs into HTML <ul><li>...</li></ul> format for CSV download view
-                    for col in id_columns:
-                        if col in df_csv.columns:
-                            df_csv[col] = df_csv[col].apply(
-                                lambda x: "<ul>" + "".join(f"<li>{id.strip()}</li>" for id in str(x).split(',') if id.strip() and len(id.strip()) == 36) + "</ul>"
-                                if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else ''
-                            )
-
                     # Move row_index to first column and rename it
                     if 'row_index' in df.columns:
                          # Reorder columns to put row_index first
@@ -477,75 +480,54 @@ with tab2:
                              df_csv = df_csv[cols_csv]
                              df_csv = df_csv.rename(columns={'row_index': 'Row Index'})
 
-                    # Render HTML table manually with delete buttons (using display dataframe with counts)
-                    st.subheader("📋 Prediction Log (List View)")
-
-                    html_table = "<table style='width:100%; border-collapse: collapse; background-color: black; color: white; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;' border='1'>"
-                    html_table += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df_display.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
-
-                    for _, row in df_display.iterrows():
-                        row_index = row.get('Row Index', _)
-                        html_table += "<tr style='background-color: black;'>" + "".join(
-                            f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df_display.columns
-                        ) + f"<td style='vertical-align:top; padding:8px; text-align:center; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>"
-                        html_table += f"<button onclick='deleteRow({row_index})' style='background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>🗑️ Delete</button>"
-                        html_table += "</td></tr>"
-
-                    html_table += "</table>"
-
-                    # Add JavaScript for delete functionality
-                    delete_js = """
-                    <script>
-                    function deleteRow(rowIndex) {
-                        if (confirm('Are you sure you want to delete this record?')) {
-                            fetch(`http://localhost:8000/prediction-logs/${rowIndex}`, {
-                                method: 'DELETE'
-                            })
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.success) {
-                                    // Show success message and trigger page reload
-                                    alert('Record deleted successfully!');
-                                    // Force a hard reload to refresh the data
-                                    window.location.href = window.location.href;
-                                } else {
-                                    alert('Error: ' + data.error);
-                                }
-                            })
-                            .catch(error => {
-                                alert('Error: ' + error);
-                            });
-                        }
-                    }
-                    </script>
-                    """
+                    # Create a simplified dataframe with only the requested columns
+                    st.subheader("📋 Prediction Log")
                     
-                    # Use st.components.html to execute JavaScript
-                    import streamlit.components.v1 as components
-                    components.html(html_table + delete_js, height=600, scrolling=True)
+                    # Define the columns to display in the specified order
+                    display_columns = [
+                        'Row Index',
+                        'Given Date',
+                        'Total Customers',
+                        'Real Churn Ratio',
+                        'Predict Churn Ratio',
+                        'Accuracy',
+                        'Recall',
+                        'Matched',
+                        'Mismatched',
+                        'False Positives',
+                        'Input Tokens',
+                        'Output Tokens',
+                        'Total Tokens',
+                        'Total Cost',
+                        'Response Time (seconds)',
+                        'Number of Weeks',
+                        'Additional Prompt'
+                    ]
                     
-                    # Add toggle for detailed view
-                    st.subheader("📋 Detailed View (with Customer IDs)")
+                    # Create a new dataframe with calculated columns
+                    df_simple = df_display.copy()
                     
-                    # Toggle for detailed view
-                    show_detailed = st.checkbox("Show detailed view with customer IDs", value=False)
+                    # Calculate Real Churn Ratio from Churn Distribution
+                    if 'Churn Distribution' in df_simple.columns:
+                        df_simple['Real Churn Ratio'] = df_simple['Churn Distribution'].apply(
+                            lambda x: f"{x.split(':')[0]}/{x.split(':')[1]}" if isinstance(x, str) and ':' in x else "0/0"
+                        )
                     
-                    if show_detailed:
-                        html_table_detailed = "<table style='width:100%; border-collapse: collapse; background-color: black; color: white; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;' border='1'>"
-                        html_table_detailed += "<tr style='background-color: #333;'>" + "".join(f"<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{col}</th>" for col in df_csv.columns) + "<th style='padding:8px; color: white; font-weight: bold; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>Actions</th></tr>"
-
-                        for _, row in df_csv.iterrows():
-                            row_index = row.get('Row Index', _)
-                            html_table_detailed += "<tr style='background-color: black;'>" + "".join(
-                                f"<td style='vertical-align:top; padding:8px; color: white; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>{row[col]}</td>" for col in df_csv.columns
-                            ) + f"<td style='vertical-align:top; padding:8px; text-align:center; border: 1px solid #555; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>"
-                            html_table_detailed += f"<button onclick='deleteRow({row_index})' style='background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;'>🗑️ Delete</button>"
-                            html_table_detailed += "</td></tr>"
-
-                        html_table_detailed += "</table>"
-                        components.html(html_table_detailed + delete_js, height=600, scrolling=True)
-
-                    # CSV download using dedicated endpoint
+                    # Calculate Predict Churn Ratio from Matched + Mismatched vs Total Customers
+                    if 'Matched' in df_simple.columns and 'Mismatched' in df_simple.columns and 'Total Customers' in df_simple.columns:
+                        df_simple['Predict Churn Ratio'] = df_simple.apply(
+                            lambda row: f"{row['Matched'] + row['Mismatched']}/{row['Total Customers'] - (row['Matched'] + row['Mismatched'])}" 
+                            if row['Total Customers'] > 0 else "0/0", axis=1
+                        )
+                    
+                    # Filter to only include available columns
+                    available_columns = [col for col in display_columns if col in df_simple.columns]
+                    df_simple = df_simple[available_columns].copy()
+                    
+                    # Display the dataframe without the duplicate index
+                    st.dataframe(df_simple, use_container_width=True, hide_index=True)
+                    
+                    # CSV download button under the dataframe
                     try:
                         csv_res = requests.get("http://localhost:8000/prediction-logs/csv")
                         if csv_res.status_code == 200:
@@ -567,6 +549,30 @@ with tab2:
                             st.error("❌ Failed to get CSV data")
                     except Exception as e:
                         st.error(f"❌ Error downloading CSV: {str(e)}")
+                    
+                    # Add delete functionality below the CSV button
+                    st.subheader("🗑️ Delete Records")
+                    col1, col2 = st.columns([1, 3])
+                    
+                    with col1:
+                        selected_row = st.selectbox(
+                            "Select row to delete:",
+                            options=df_simple['Row Index'].tolist(),
+                            format_func=lambda x: f"Row {x}"
+                        )
+                    
+                    if st.button("Delete Selected Row", type="secondary"):
+                        if selected_row is not None:
+                            # Delete the selected row
+                            try:
+                                delete_response = requests.delete(f"http://localhost:8000/prediction-logs/{selected_row}")
+                                if delete_response.status_code == 200:
+                                    st.success(f"Row {selected_row} deleted successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"Failed to delete row {selected_row}")
+                            except Exception as e:
+                                st.error(f"Error deleting row: {str(e)}")
                 else:
                     st.info("No prediction logs found. Run some predictions first!")
             else:

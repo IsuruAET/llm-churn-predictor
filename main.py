@@ -36,7 +36,7 @@ class ChurnRequest(BaseModel):
     num_weeks: int = 20  # Default to 20 weeks
     model: str = "gpt-3.5-turbo"
     custom_prompt: Optional[str] = None
-    shuffled_data: Optional[list] = None  # Add support for shuffled data
+    data: list  # Required - dataset must always be provided from frontend
 
 # Model pricing (per 1K tokens) - Updated as of 2025
 MODEL_PRICING = {
@@ -82,11 +82,11 @@ def log_prediction_to_csv(data):
         # Write header if file doesn't exist
         if not file_exists:
             writer.writerow([
-                'Date and Time', 'Total Customers', 'Churn Distribution', 'Actual Churn Customer IDs', 
+                'Given Date', 'Total Customers', 'Churn Distribution', 'Actual Churn Customer IDs', 
                 'Actual Non Churn Customer IDs', 'Predicted Churn Customer IDs', 
                 'Predicted Non Churn Customer IDs', 'Matched', 'Mismatched', 
                 'False Positives', 'Input Tokens', 'Output Tokens', 
-                'Total Tokens', 'Model', 'Total Cost', 'Response Time (seconds)', 'Additional Prompt', 'Given Date', 'Number of Weeks'
+                'Total Tokens', 'Model', 'Total Cost', 'Response Time (seconds)', 'Additional Prompt', 'Number of Weeks'
             ])
         
         # Calculate metrics
@@ -109,7 +109,7 @@ def log_prediction_to_csv(data):
         false_alarms = len(predicted_set - actual_set)
         
         writer.writerow([
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            data.get('given_date', ''),
             total_customers,
             churn_distribution,
             actual_churn_ids,
@@ -126,7 +126,6 @@ def log_prediction_to_csv(data):
             data['usage']['total_cost'],
             data.get('response_time', ''),
             data.get('custom_prompt', ''),
-            data.get('given_date', ''),
             data.get('num_weeks', '')
         ])
 
@@ -446,109 +445,14 @@ def get_shuffled_dataset(churn_count: int = 1, non_churn_count: int = 4, given_d
     except Exception as e:
         return {"error": f"Database error: {str(e)}", "dataset": []}
 
+# Simplified predict-churn endpoint that always expects dataset from frontend
 @app.post("/predict-churn")
 def predict_churn(request: ChurnRequest):
-    # Use shuffled data if provided, otherwise fetch from database
-    if request.shuffled_data:
-        rows = request.shuffled_data
-    else:
-        try:
-            conn = mysql.connector.connect(
-                host=os.getenv("DB_HOST"),
-                user=os.getenv("DB_USER"),
-                password=os.getenv("DB_PASS"),
-                database=os.getenv("DB_NAME")
-            )
-            cursor = conn.cursor(dictionary=True)
-
-            # Check if the table exists
-            cursor.execute("SHOW TABLES LIKE 'customer_tx_weekly'")
-            tables = cursor.fetchall()
-            if not tables:
-                return {"error": "Table 'customer_tx_weekly' not found", "dataset": []}
-            
-            # Check date range in the table and adjust if needed
-            cursor.execute("SELECT MAX(week_end_date) as max_date FROM customer_tx_weekly")
-            date_range = cursor.fetchone()
-            if date_range and date_range['max_date']:
-                if request.given_date > date_range['max_date'].strftime('%Y-%m-%d'):
-                    request.given_date = date_range['max_date'].strftime('%Y-%m-%d')
-
-            # Main query to get data
-            query = f"""
-            SELECT 
-                t.customer_id,
-                t.week_end_date,
-                t.order_count,
-                t.order_total, 
-                t.discount_total,
-                t.loyalty_earned,
-                CASE 
-                    WHEN DATEDIFF('{request.given_date}', COALESCE(last_orders.last_order_date, '1900-01-01')) > 90 THEN 1
-                    ELSE 0
-                END AS is_churn
-            FROM customer_tx_weekly t
-            LEFT JOIN (
-                SELECT 
-                    customer_id,
-                    MAX(week_end_date) AS last_order_date
-                FROM customer_tx_weekly
-                WHERE week_end_date <= '{request.given_date}'
-                GROUP BY customer_id
-            ) AS last_orders ON t.customer_id = last_orders.customer_id
-            WHERE t.week_end_date BETWEEN DATE_SUB('{request.given_date}', INTERVAL {request.num_weeks} WEEK) AND '{request.given_date}'
-            ORDER BY is_churn DESC, t.customer_id, t.week_end_date DESC
-            """
-            
-            cursor.execute(query)
-            all_rows = cursor.fetchall()
-            
-            if not all_rows:
-                cursor.close()
-                conn.close()
-                return {"error": "No data found for the specified parameters", "dataset": []}
-
-            # Group by customer_id to get unique customers
-            customer_data = {}
-            for row in all_rows:
-                customer_id = row['customer_id']
-                if customer_id not in customer_data:
-                    customer_data[customer_id] = []
-                customer_data[customer_id].append(row)
-            
-            # Separate churn and non-churn customers
-            churn_customers = []
-            non_churn_customers = []
-            
-            for customer_id, rows in customer_data.items():
-                is_churn = any(row['is_churn'] == 1 for row in rows)
-                if is_churn:
-                    churn_customers.append(customer_id)
-                else:
-                    non_churn_customers.append(customer_id)
-            
-            # Select the required number of customers
-            selected_churn = churn_customers[:request.churn_count]
-            selected_non_churn = non_churn_customers[:request.non_churn_count]
-            
-            # Get data for selected customers
-            selected_customers = selected_churn + selected_non_churn
-            rows = []
-            
-            for customer_id in selected_customers:
-                if customer_id in customer_data:
-                    rows.extend(customer_data[customer_id])
-            
-            cursor.close()
-            conn.close()
-
-            # Convert datetime objects to strings for JSON serialization
-            for row in rows:
-                if 'week_end_date' in row and row['week_end_date']:
-                    row['week_end_date'] = row['week_end_date'].strftime('%Y-%m-%d')
-                    
-        except Exception as e:
-            return {"error": f"Database error: {str(e)}", "dataset": []}
+    # Always expect data to be provided from the frontend
+    if not request.data:
+        return {"error": "Dataset must be provided via data parameter. Please load the dataset in the frontend first.", "dataset": []}
+    
+    rows = request.data
 
     grouped_data = defaultdict(list)
     for row in rows:
