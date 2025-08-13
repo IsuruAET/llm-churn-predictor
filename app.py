@@ -1,7 +1,9 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+import copy
+import random
 
 st.set_page_config(page_title="Churn Predictor LLM", layout="wide")
 
@@ -20,7 +22,6 @@ with tab1:
         non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=4)
 
     with col3:
-        # Default to today's date
         default_date = date.today()
         given_date = st.date_input(
             "Given Date",
@@ -82,8 +83,6 @@ with tab1:
                 elif dataset_data.get("dataset"):
                     if len(dataset_data["dataset"]) > 0:
                         st.session_state.dataset_data = dataset_data
-                        # Store a deep copy of the original data for reset functionality
-                        import copy
                         st.session_state.original_dataset_data = copy.deepcopy(dataset_data)
                         st.session_state.dataset_loaded = True
                         st.success(f"✅ Dataset loaded successfully! Found {len(dataset_data['dataset'])} records")
@@ -93,11 +92,6 @@ with tab1:
                     st.warning("No dataset found - unexpected response format")
             else:
                 st.error(f"❌ Failed to load dataset (HTTP {dataset_res.status_code})")
-                try:
-                    error_data = dataset_res.json()
-                    st.error(f"Error details: {error_data}")
-                except:
-                    st.error(f"Error text: {dataset_res.text}")
 
     # Display dataset if loaded
     if st.session_state.dataset_loaded and st.session_state.dataset_data:
@@ -127,10 +121,10 @@ with tab1:
             )
         
         with col2:
-            st.write("")  # Empty space for alignment
+            st.write("")
         
         with col3:
-            st.write("")  # Empty space for alignment
+            st.write("")
         
         # Filter dataset based on selection
         if selected_customer_id != "All Customers":
@@ -146,11 +140,6 @@ with tab1:
         with col1:
             if st.button("🔀 Shuffle Customer Groups"):
                 if st.session_state.dataset_data and st.session_state.dataset_data.get("dataset"):
-                    # Shuffle the currently loaded dataset instead of fetching new data
-                    import random
-                    import copy
-                    
-                    # Create a deep copy of the current dataset to avoid modifying the original
                     current_dataset = copy.deepcopy(st.session_state.dataset_data)
                     
                     # Group data by customer_id
@@ -188,7 +177,7 @@ with tab1:
                     st.warning("No original data to reset to")
         
         with col3:
-            st.write("")  # Empty space for alignment
+            st.write("")
         
         # Add churn status column for better visualization
         filtered_dataset['Churn Status'] = filtered_dataset['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
@@ -212,11 +201,9 @@ with tab1:
             active_records = len(filtered_dataset) - churned_records
             st.metric("Active Records", active_records)
         with col4:
-            # Calculate unique customer counts
             unique_customers = filtered_dataset['customer_id'].nunique()
             st.metric("Unique Customers", unique_customers)
         with col5:
-            # Calculate churn distribution (unique customers)
             churned_customers = filtered_dataset[filtered_dataset['is_churn'] == 1]['customer_id'].nunique()
             active_customers = unique_customers - churned_customers
             churn_distribution = f"{churned_customers}:{active_customers}"
@@ -235,7 +222,6 @@ with tab1:
         else:
             st.info("📊 **Dataset:** Using shuffled dataset order")
         
-        # Note: Dataset is always sent to backend for prediction
         st.info("💡 **Note:** The current dataset (original or shuffled) will be sent to the backend for prediction.")
         
         col1, col2 = st.columns(2)
@@ -249,7 +235,7 @@ with tab1:
             )
         
         with col2:
-            st.write("")  # Empty space to align with model selector
+            st.write("")
         
         # Default prompt display
         st.subheader("📋 Default Prompt")
@@ -282,13 +268,11 @@ Which customers will churn next week? Respond with a list of customer_ids only."
         )
         
         if st.button("🔮 Predict Churn"):
-            # Validate that dataset is loaded
             if not st.session_state.dataset_loaded or not st.session_state.dataset_data:
                 st.error("❌ Please load the dataset first before making predictions!")
                 st.stop()
                 
             with st.spinner("Processing prediction..."):
-                # Always prepare request data with current dataset
                 request_data = {
                     "churn_count": churn_count,
                     "non_churn_count": non_churn_count,
@@ -296,10 +280,9 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                     "num_weeks": num_weeks,
                     "model": model,
                     "custom_prompt": custom_prompt if custom_prompt.strip() else None,
-                    "data": st.session_state.dataset_data["dataset"]  # Always send current dataset (original or shuffled)
+                    "data": st.session_state.dataset_data["dataset"]
                 }
                 
-                # Make the prediction
                 res = requests.post("http://localhost:8000/predict-churn", json=request_data)
 
                 if res.status_code == 200:
@@ -333,7 +316,6 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                         actual_count = len(data["actual_churned_customers"]) if data["actual_churned_customers"] else 0
                         st.write(f"**Actual Churned Customers ({actual_count}):**")
                         if data["actual_churned_customers"]:
-                            # Sort customer IDs in ascending order
                             sorted_actual = sorted(data["actual_churned_customers"])
                             for customer_id in sorted_actual:
                                 st.write(f"- {customer_id}")
@@ -344,7 +326,6 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                         predicted_count = len(data["churned_customers"]) if data["churned_customers"] else 0
                         st.write(f"**Predicted Churned Customers ({predicted_count}):**")
                         if data["churned_customers"]:
-                            # Sort customer IDs in ascending order
                             sorted_predicted = sorted(data["churned_customers"])
                             for customer_id in sorted_predicted:
                                 st.write(f"- {customer_id}")
@@ -354,11 +335,6 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                     st.error("❌ Failed to get predictions")
     else:
         st.info("👆 Click 'Load Data' to fetch the dataset first")
-
-import streamlit as st
-import pandas as pd
-import requests
-from datetime import datetime
 
 with tab2:
     st.title("📊 Prediction Logs")
@@ -371,217 +347,196 @@ with tab2:
         st.session_state.auto_refresh = False
         st.rerun()
 
-    try:
-        res = requests.get("http://localhost:8000/prediction-logs")
+    res = requests.get("http://localhost:8000/prediction-logs")
 
-        if res.status_code == 200:
-            data = res.json()
+    if res.status_code == 200:
+        data = res.json()
 
-            if data["logs"]:
-                df = pd.DataFrame(data["logs"])
+        if data["logs"]:
+            df = pd.DataFrame(data["logs"])
 
-                if not df.empty:
-                    # Sort by timestamp or ID to show most recent records first
-                    if 'Timestamp' in df.columns:
-                        df = df.sort_values('Timestamp', ascending=False)
-                    elif 'ID' in df.columns:
-                        df = df.sort_values('ID', ascending=False)
-                    else:
-                        # If no timestamp/ID column, reverse the order to show newest first
-                        df = df.iloc[::-1].reset_index(drop=True)
-                    if 'Total Cost' in df.columns:
-                        df['Total Cost'] = df['Total Cost'].apply(lambda x: f"${x:.6f}" if pd.notna(x) else "$0.000000")
-
-                    # Calculate accuracy for each row and add it after False Positives column
-                    if 'False Positives' in df.columns:
-                        # Calculate accuracy: (Matched + (Total Customers - Matched - Mismatched - False Positives)) / Total Customers
-                        df['Accuracy'] = df.apply(
-                            lambda row: f"{((row['Matched'] + (row['Total Customers'] - row['Matched'] - row['Mismatched'] - row['False Positives'])) / row['Total Customers'] * 100):.1f}%" 
-                            if row['Total Customers'] > 0 else "0.0%", 
-                            axis=1
-                        )
-                        
-                        # Calculate recall for each row: Matched / (Matched + Mismatched)
-                        df['Recall'] = df.apply(
-                            lambda row: f"{(row['Matched'] / (row['Matched'] + row['Mismatched']) * 100):.1f}%" 
-                            if (row['Matched'] + row['Mismatched']) > 0 else "0.0%", 
-                            axis=1
-                        )
-                        
-                        # Reorder columns to put Accuracy after False Positives, then Recall after Accuracy
-                        cols = list(df.columns)
-                        false_positives_idx = cols.index('False Positives')
-                        cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
-                        accuracy_idx = cols.index('Accuracy')
-                        cols.insert(accuracy_idx + 1, cols.pop(cols.index('Recall')))
-                        df = df[cols]
-
-                    col1, col2, col3, col4, col5 = st.columns(5)
-                    with col1:
-                        st.metric("Total Predictions", len(df))
-                    with col2:
-                        # Calculate overall accuracy: (True Positives + True Negatives) / Total Predictions
-                        true_positives = df['Matched'].sum()  # Correctly identified churners
-                        true_negatives = df['Total Customers'].sum() - (df['Matched'].sum() + df['Mismatched'].sum() + df['False Positives'].sum())
-                        total_predictions = df['Total Customers'].sum()
-                        accuracy = (true_positives + true_negatives) / total_predictions * 100 if total_predictions > 0 else 0
-                        st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions. Formula: (True Positives + True Negatives) / Total Predictions")
-                    with col3:
-                        # Calculate recall: True Positives / (True Positives + False Negatives)
-                        false_negatives = df['Mismatched'].sum()  # Missed churners
-                        recall = true_positives / (true_positives + false_negatives) * 100 if (true_positives + false_negatives) > 0 else 0
-                        st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives. Formula: True Positives / (True Positives + False Negatives)")
-                    with col4:
-                        total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
-                        st.metric("Total Cost", f"${total_cost:.6f}")
-                    with col5:
-                        total_tokens = df['Total Tokens'].sum() if 'Total Tokens' in df.columns else 0
-                        st.metric("Total Tokens", f"{total_tokens:,}")
-
-                    # Create a copy for display with counts instead of ID lists
-                    df_display = df.copy()
-                    
-                    # Convert ID columns to counts for display
-                    id_columns = [
-                        'Actual Churn Customer IDs',
-                        'Actual Non Churn Customer IDs',
-                        'Predicted Churn Customer IDs',
-                        'Predicted Non Churn Customer IDs'
-                    ]
-
-                    for col in id_columns:
-                        if col in df_display.columns:
-                            df_display[col] = df_display[col].apply(
-                                lambda x: len([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])
-                                if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else 0
-                            )
-                            # Rename column to show it's a count
-                            new_col_name = col.replace(' Customer IDs', ' Count')
-                            df_display = df_display.rename(columns={col: new_col_name})
-                    
-                    # Keep original df for CSV download (with ID lists)
-                    df_csv = df.copy()
-                    
-                    # Move row_index to first column and rename it
-                    if 'row_index' in df.columns:
-                         # Reorder columns to put row_index first
-                         cols = ['row_index'] + [col for col in df.columns if col != 'row_index']
-                         df = df[cols]
-                         # Rename the column
-                         df = df.rename(columns={'row_index': 'Row Index'})
-                         
-                         # Also update display dataframe
-                         if 'row_index' in df_display.columns:
-                             cols_display = ['row_index'] + [col for col in df_display.columns if col != 'row_index']
-                             df_display = df_display[cols_display]
-                             df_display = df_display.rename(columns={'row_index': 'Row Index'})
-                         
-                         # Also update CSV dataframe
-                         if 'row_index' in df_csv.columns:
-                             cols_csv = ['row_index'] + [col for col in df_csv.columns if col != 'row_index']
-                             df_csv = df_csv[cols_csv]
-                             df_csv = df_csv.rename(columns={'row_index': 'Row Index'})
-
-                    # Create a simplified dataframe with only the requested columns
-                    st.subheader("📋 Prediction Log")
-                    
-                    # Define the columns to display in the specified order
-                    display_columns = [
-                        'Row Index',
-                        'Given Date',
-                        'Total Customers',
-                        'Real Churn Ratio',
-                        'Predict Churn Ratio',
-                        'Accuracy',
-                        'Recall',
-                        'Matched',
-                        'Mismatched',
-                        'False Positives',
-                        'Input Tokens',
-                        'Output Tokens',
-                        'Total Tokens',
-                        'Total Cost',
-                        'Response Time (seconds)',
-                        'Number of Weeks',
-                        'Additional Prompt'
-                    ]
-                    
-                    # Create a new dataframe with calculated columns
-                    df_simple = df_display.copy()
-                    
-                    # Calculate Real Churn Ratio from Churn Distribution
-                    if 'Churn Distribution' in df_simple.columns:
-                        df_simple['Real Churn Ratio'] = df_simple['Churn Distribution'].apply(
-                            lambda x: f"{x.split(':')[0]}:{x.split(':')[1]}" if isinstance(x, str) and ':' in x else "0:0"
-                        )
-                    
-                    # Calculate Predict Churn Ratio from predicted churn count vs predicted non-churn count
-                    if 'Predicted Churn Count' in df_simple.columns and 'Total Customers' in df_simple.columns:
-                        df_simple['Predict Churn Ratio'] = df_simple.apply(
-                            lambda row: f"{row['Predicted Churn Count']}:{row['Total Customers'] - row['Predicted Churn Count']}"
-                            if row['Total Customers'] > 0 else "0:0", axis=1
-                        )
-                    
-                    # Filter to only include available columns
-                    available_columns = [col for col in display_columns if col in df_simple.columns]
-                    df_simple = df_simple[available_columns].copy()
-                    
-                    # Display the dataframe without the duplicate index
-                    st.dataframe(df_simple, use_container_width=True, hide_index=True)
-                    
-                    # CSV download button under the dataframe
-                    try:
-                        csv_res = requests.get("http://localhost:8000/prediction-logs/csv")
-                        if csv_res.status_code == 200:
-                            csv_data = csv_res.json()
-                            if "csv_content" in csv_data:
-                                # Generate filename with date and time
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = f"prediction_logs_{timestamp}.csv"
-                                
-                                st.download_button(
-                                    label="📥 Download CSV",
-                                    data=csv_data["csv_content"],
-                                    file_name=filename,
-                                    mime="text/csv"
-                                )
-                            else:
-                                st.error("❌ Failed to get CSV content")
-                        else:
-                            st.error("❌ Failed to get CSV data")
-                    except Exception as e:
-                        st.error(f"❌ Error downloading CSV: {str(e)}")
-                    
-                    # Add delete functionality below the CSV button
-                    st.subheader("🗑️ Delete Records")
-                    col1, col2 = st.columns([1, 3])
-                    
-                    with col1:
-                        selected_row = st.selectbox(
-                            "Select row to delete:",
-                            options=df_simple['Row Index'].tolist(),
-                            format_func=lambda x: f"Row {x}"
-                        )
-                    
-                    if st.button("Delete Selected Row", type="secondary"):
-                        if selected_row is not None:
-                            # Delete the selected row
-                            try:
-                                delete_response = requests.delete(f"http://localhost:8000/prediction-logs/{selected_row}")
-                                if delete_response.status_code == 200:
-                                    st.success(f"Row {selected_row} deleted successfully!")
-                                    st.rerun()
-                                else:
-                                    st.error(f"Failed to delete row {selected_row}")
-                            except Exception as e:
-                                st.error(f"Error deleting row: {str(e)}")
+            if not df.empty:
+                # Sort by timestamp or ID to show most recent records first
+                if 'Timestamp' in df.columns:
+                    df = df.sort_values('Timestamp', ascending=False)
+                elif 'ID' in df.columns:
+                    df = df.sort_values('ID', ascending=False)
                 else:
-                    st.info("No prediction logs found. Run some predictions first!")
+                    df = df.iloc[::-1].reset_index(drop=True)
+                
+                if 'Total Cost' in df.columns:
+                    df['Total Cost'] = df['Total Cost'].apply(lambda x: f"${x:.6f}" if pd.notna(x) else "$0.000000")
+
+                # Calculate accuracy for each row
+                if 'False Positives' in df.columns:
+                    df['Accuracy'] = df.apply(
+                        lambda row: f"{((row['Matched'] + (row['Total Customers'] - row['Matched'] - row['Mismatched'] - row['False Positives'])) / row['Total Customers'] * 100):.1f}%" 
+                        if row['Total Customers'] > 0 else "0.0%", 
+                        axis=1
+                    )
+                    
+                    df['Recall'] = df.apply(
+                        lambda row: f"{(row['Matched'] / (row['Matched'] + row['Mismatched']) * 100):.1f}%" 
+                        if (row['Matched'] + row['Mismatched']) > 0 else "0.0%", 
+                        axis=1
+                    )
+                    
+                    # Reorder columns
+                    cols = list(df.columns)
+                    false_positives_idx = cols.index('False Positives')
+                    cols.insert(false_positives_idx + 1, cols.pop(cols.index('Accuracy')))
+                    accuracy_idx = cols.index('Accuracy')
+                    cols.insert(accuracy_idx + 1, cols.pop(cols.index('Recall')))
+                    df = df[cols]
+
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Total Predictions", len(df))
+                with col2:
+                    true_positives = df['Matched'].sum()
+                    true_negatives = df['Total Customers'].sum() - (df['Matched'].sum() + df['Mismatched'].sum() + df['False Positives'].sum())
+                    total_predictions = df['Total Customers'].sum()
+                    accuracy = (true_positives + true_negatives) / total_predictions * 100 if total_predictions > 0 else 0
+                    st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions. Formula: (True Positives + True Negatives) / Total Predictions")
+                with col3:
+                    false_negatives = df['Mismatched'].sum()
+                    recall = true_positives / (true_positives + false_negatives) * 100 if (true_positives + false_negatives) > 0 else 0
+                    st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives. Formula: True Positives / (True Positives + False Negatives)")
+                with col4:
+                    total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
+                    st.metric("Total Cost", f"${total_cost:.6f}")
+                with col5:
+                    total_tokens = df['Total Tokens'].sum() if 'Total Tokens' in df.columns else 0
+                    st.metric("Total Tokens", f"{total_tokens:,}")
+
+                # Create a copy for display with counts instead of ID lists
+                df_display = df.copy()
+                
+                # Convert ID columns to counts for display
+                id_columns = [
+                    'Actual Churn Customer IDs',
+                    'Actual Non Churn Customer IDs',
+                    'Predicted Churn Customer IDs',
+                    'Predicted Non Churn Customer IDs'
+                ]
+
+                for col in id_columns:
+                    if col in df_display.columns:
+                        df_display[col] = df_display[col].apply(
+                            lambda x: len([id.strip() for id in str(x).split(',') if id.strip() and len(id.strip()) == 36])
+                            if pd.notna(x) and str(x).strip() and str(x).strip() != 'nan' else 0
+                        )
+                        new_col_name = col.replace(' Customer IDs', ' Count')
+                        df_display = df_display.rename(columns={col: new_col_name})
+                
+                # Keep original df for CSV download
+                df_csv = df.copy()
+                
+                # Move row_index to first column and rename it
+                if 'row_index' in df.columns:
+                     cols = ['row_index'] + [col for col in df.columns if col != 'row_index']
+                     df = df[cols]
+                     df = df.rename(columns={'row_index': 'Row Index'})
+                     
+                     if 'row_index' in df_display.columns:
+                         cols_display = ['row_index'] + [col for col in df_display.columns if col != 'row_index']
+                         df_display = df_display[cols_display]
+                         df_display = df_display.rename(columns={'row_index': 'Row Index'})
+                     
+                     if 'row_index' in df_csv.columns:
+                         cols_csv = ['row_index'] + [col for col in df_csv.columns if col != 'row_index']
+                         df_csv = df_csv[cols_csv]
+                         df_csv = df_csv.rename(columns={'row_index': 'Row Index'})
+
+                # Create a simplified dataframe with only the requested columns
+                st.subheader("📋 Prediction Log")
+                
+                # Define the columns to display in the specified order
+                display_columns = [
+                    'Row Index',
+                    'Given Date',
+                    'Total Customers',
+                    'Real Churn Ratio',
+                    'Predict Churn Ratio',
+                    'Accuracy',
+                    'Recall',
+                    'Matched',
+                    'Mismatched',
+                    'False Positives',
+                    'Input Tokens',
+                    'Output Tokens',
+                    'Total Tokens',
+                    'Total Cost',
+                    'Response Time (seconds)',
+                    'Number of Weeks',
+                    'Additional Prompt'
+                ]
+                
+                # Create a new dataframe with calculated columns
+                df_simple = df_display.copy()
+                
+                # Calculate Real Churn Ratio from Churn Distribution
+                if 'Churn Distribution' in df_simple.columns:
+                    df_simple['Real Churn Ratio'] = df_simple['Churn Distribution'].apply(
+                        lambda x: f"{x.split(':')[0]}:{x.split(':')[1]}" if isinstance(x, str) and ':' in x else "0:0"
+                    )
+                
+                # Calculate Predict Churn Ratio from predicted churn count vs predicted non-churn count
+                if 'Predicted Churn Count' in df_simple.columns and 'Total Customers' in df_simple.columns:
+                    df_simple['Predict Churn Ratio'] = df_simple.apply(
+                        lambda row: f"{row['Predicted Churn Count']}:{row['Total Customers'] - row['Predicted Churn Count']}"
+                        if row['Total Customers'] > 0 else "0:0", axis=1
+                    )
+                
+                # Filter to only include available columns
+                available_columns = [col for col in display_columns if col in df_simple.columns]
+                df_simple = df_simple[available_columns].copy()
+                
+                # Display the dataframe without the duplicate index
+                st.dataframe(df_simple, use_container_width=True, hide_index=True)
+                
+                # CSV download button under the dataframe
+                csv_res = requests.get("http://localhost:8000/prediction-logs/csv")
+                if csv_res.status_code == 200:
+                    csv_data = csv_res.json()
+                    if "csv_content" in csv_data:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"prediction_logs_{timestamp}.csv"
+                        
+                        st.download_button(
+                            label="📥 Download CSV",
+                            data=csv_data["csv_content"],
+                            file_name=filename,
+                            mime="text/csv"
+                        )
+                    else:
+                        st.error("❌ Failed to get CSV content")
+                else:
+                    st.error("❌ Failed to get CSV data")
+                
+                # Add delete functionality below the CSV button
+                st.subheader("🗑️ Delete Records")
+                col1, col2 = st.columns([1, 3])
+                
+                with col1:
+                    selected_row = st.selectbox(
+                        "Select row to delete:",
+                        options=df_simple['Row Index'].tolist(),
+                        format_func=lambda x: f"Row {x}"
+                    )
+                
+                if st.button("Delete Selected Row", type="secondary"):
+                    if selected_row is not None:
+                        delete_response = requests.delete(f"http://localhost:8000/prediction-logs/{selected_row}")
+                        if delete_response.status_code == 200:
+                            st.success(f"Row {selected_row} deleted successfully!")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to delete row {selected_row}")
             else:
                 st.info("No prediction logs found. Run some predictions first!")
         else:
-            st.error("❌ Failed to fetch prediction logs")
-
-    except Exception as e:
-        st.error(f"❌ Error loading prediction logs: {str(e)}")
+            st.info("No prediction logs found. Run some predictions first!")
+    else:
+        st.error("❌ Failed to fetch prediction logs")
         st.info("Make sure the backend server is running on http://localhost:8000")
