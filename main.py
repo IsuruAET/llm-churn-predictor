@@ -603,7 +603,7 @@ def predict_churn(request: ChurnRequest):
     
     default_content_suffix = (
         f"\n---\n"
-        f"Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.\n"
+        f"A customer is considered 'churned' if and only if they have been inactive (no orders) for the most recent 12 consecutive weeks. If this 12-week inactivity condition is met, they are definitely a churn customer.\n"
         f"Based on this historical pattern analysis, which customers will churn in the week of {prediction_target_date}? Respond with a list of customer_ids only."
         f"\n\nNote: Use the {request.num_weeks} weeks of data ending on {request.given_date} to identify customers at risk of churning in the following week."
     )

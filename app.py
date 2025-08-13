@@ -225,7 +225,7 @@ Here is the recent weekly order data (last {num_weeks} weeks) for multiple custo
 ---
 [Customer data will be inserted here]
 ---
-Consider a customer as 'churned' if they have been inactive (no orders) for the recent 12 weeks.
+A customer is considered 'churned' if and only if they have been inactive (no orders) for the most recent 12 consecutive weeks. If this 12-week inactivity condition is met, they are definitely a churn customer.
 Which customers will churn next week? Respond with a list of customer_ids only."""
         
         st.text_area(
@@ -292,17 +292,23 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.write("**Actual Churned Customers:**")
+                        actual_count = len(data["actual_churned_customers"]) if data["actual_churned_customers"] else 0
+                        st.write(f"**Actual Churned Customers ({actual_count}):**")
                         if data["actual_churned_customers"]:
-                            for customer_id in data["actual_churned_customers"]:
+                            # Sort customer IDs in ascending order
+                            sorted_actual = sorted(data["actual_churned_customers"])
+                            for customer_id in sorted_actual:
                                 st.write(f"- {customer_id}")
                         else:
                             st.write("No actual churned customers in sample")
                     
                     with col2:
-                        st.write("**Predicted Churned Customers:**")
+                        predicted_count = len(data["churned_customers"]) if data["churned_customers"] else 0
+                        st.write(f"**Predicted Churned Customers ({predicted_count}):**")
                         if data["churned_customers"]:
-                            for customer_id in data["churned_customers"]:
+                            # Sort customer IDs in ascending order
+                            sorted_predicted = sorted(data["churned_customers"])
+                            for customer_id in sorted_predicted:
                                 st.write(f"- {customer_id}")
                         else:
                             st.write("No customers predicted to churn")
