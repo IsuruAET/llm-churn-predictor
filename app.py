@@ -111,6 +111,33 @@ with tab1:
             prediction_date = (given_date + timedelta(days=7)).strftime('%Y-%m-%d')
             st.info(f"**Prediction Target:** {prediction_date}")
         
+        # Customer ID filter dropdown
+        df_dataset = pd.DataFrame(st.session_state.dataset_data["dataset"])
+        unique_customer_ids = sorted(df_dataset['customer_id'].unique())
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            selected_customer_id = st.selectbox(
+                "Filter by Customer ID",
+                options=["All Customers"] + unique_customer_ids,
+                index=0,
+                help="Select a specific customer to filter the dataset"
+            )
+        
+        with col2:
+            st.write("")  # Empty space for alignment
+        
+        with col3:
+            st.write("")  # Empty space for alignment
+        
+        # Filter dataset based on selection
+        if selected_customer_id != "All Customers":
+            filtered_dataset = df_dataset[df_dataset['customer_id'] == selected_customer_id]
+            st.info(f"📊 Showing data for Customer ID: **{selected_customer_id}** ({len(filtered_dataset)} records)")
+        else:
+            filtered_dataset = df_dataset
+            st.info(f"📊 Showing all customers ({len(filtered_dataset)} records)")
+        
         # Shuffle and Reset buttons
         col1, col2, col3 = st.columns(3)
         
@@ -161,14 +188,12 @@ with tab1:
         with col3:
             st.write("")  # Empty space for alignment
         
-        df_dataset = pd.DataFrame(st.session_state.dataset_data["dataset"])
-        
         # Add churn status column for better visualization
-        df_dataset['Churn Status'] = df_dataset['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
+        filtered_dataset['Churn Status'] = filtered_dataset['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
         
         # Reorder columns for better display
         display_columns = ['customer_id', 'Churn Status', 'week_end_date', 'order_count', 'order_total', 'discount_total', 'loyalty_earned']
-        df_display = df_dataset[display_columns].copy()
+        df_display = filtered_dataset[display_columns].copy()
         df_display.columns = ['Customer ID', 'Churn Status', 'Week End Date', 'Order Count', 'Order Total', 'Discount Total', 'Loyalty Earned']
         
         # Display all data in one datagrid
@@ -177,20 +202,20 @@ with tab1:
         # Show summary stats
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            st.metric("Total Records", len(df_dataset))
+            st.metric("Total Records", len(filtered_dataset))
         with col2:
-            churned_records = df_dataset['is_churn'].sum()
+            churned_records = filtered_dataset['is_churn'].sum()
             st.metric("Churned Records", churned_records)
         with col3:
-            active_records = len(df_dataset) - churned_records
+            active_records = len(filtered_dataset) - churned_records
             st.metric("Active Records", active_records)
         with col4:
             # Calculate unique customer counts
-            unique_customers = df_dataset['customer_id'].nunique()
+            unique_customers = filtered_dataset['customer_id'].nunique()
             st.metric("Unique Customers", unique_customers)
         with col5:
             # Calculate churn distribution (unique customers)
-            churned_customers = df_dataset[df_dataset['is_churn'] == 1]['customer_id'].nunique()
+            churned_customers = filtered_dataset[filtered_dataset['is_churn'] == 1]['customer_id'].nunique()
             active_customers = unique_customers - churned_customers
             churn_distribution = f"{churned_customers}:{active_customers}"
             st.metric("Churn Distribution", churn_distribution, help="Churned:Active customers")
