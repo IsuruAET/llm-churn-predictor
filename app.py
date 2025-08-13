@@ -82,7 +82,9 @@ with tab1:
                 elif dataset_data.get("dataset"):
                     if len(dataset_data["dataset"]) > 0:
                         st.session_state.dataset_data = dataset_data
-                        st.session_state.original_dataset_data = dataset_data  # Store original data
+                        # Store a deep copy of the original data for reset functionality
+                        import copy
+                        st.session_state.original_dataset_data = copy.deepcopy(dataset_data)
                         st.session_state.dataset_loaded = True
                         st.success(f"✅ Dataset loaded successfully! Found {len(dataset_data['dataset'])} records")
                     else:
@@ -143,38 +145,38 @@ with tab1:
         
         with col1:
             if st.button("🔀 Shuffle Customer Groups"):
-                with st.spinner("Shuffling customer groups..."):
-                    shuffled_res = requests.get(
-                        f"http://localhost:8000/dataset/shuffled",
-                        params={
-                            "churn_count": churn_count,
-                            "non_churn_count": non_churn_count,
-                            "given_date": given_date.strftime('%Y-%m-%d'),
-                            "num_weeks": num_weeks
-                        }
-                    )
+                if st.session_state.dataset_data and st.session_state.dataset_data.get("dataset"):
+                    # Shuffle the currently loaded dataset instead of fetching new data
+                    import random
+                    import copy
                     
-                    if shuffled_res.status_code == 200:
-                        shuffled_data = shuffled_res.json()
-                        
-                        if shuffled_data.get("error"):
-                            st.error(f"❌ {shuffled_data['error']}")
-                        elif shuffled_data.get("dataset"):
-                            if len(shuffled_data["dataset"]) > 0:
-                                st.session_state.dataset_data = shuffled_data
-                                st.success("✅ Customer groups shuffled successfully!")
-                                st.rerun()
-                            else:
-                                st.warning("No shuffled dataset found - empty result")
-                        else:
-                            st.warning("No shuffled dataset found - unexpected response format")
-                    else:
-                        st.error(f"❌ Failed to shuffle dataset (HTTP {shuffled_res.status_code})")
-                        try:
-                            error_data = shuffled_res.json()
-                            st.error(f"Error details: {error_data}")
-                        except:
-                            st.error(f"Error text: {shuffled_res.text}")
+                    # Create a deep copy of the current dataset to avoid modifying the original
+                    current_dataset = copy.deepcopy(st.session_state.dataset_data)
+                    
+                    # Group data by customer_id
+                    customer_groups = {}
+                    for row in current_dataset["dataset"]:
+                        customer_id = row['customer_id']
+                        if customer_id not in customer_groups:
+                            customer_groups[customer_id] = []
+                        customer_groups[customer_id].append(row)
+                    
+                    # Shuffle the customer groups
+                    customer_ids = list(customer_groups.keys())
+                    random.shuffle(customer_ids)
+                    
+                    # Reconstruct the dataset with shuffled order
+                    shuffled_dataset = []
+                    for customer_id in customer_ids:
+                        shuffled_dataset.extend(customer_groups[customer_id])
+                    
+                    # Update the session state with shuffled data
+                    current_dataset["dataset"] = shuffled_dataset
+                    st.session_state.dataset_data = current_dataset
+                    st.success("✅ Customer groups shuffled successfully!")
+                    st.rerun()
+                else:
+                    st.warning("No dataset loaded to shuffle")
         
         with col2:
             if st.button("🔄 Reset to Original Order"):
