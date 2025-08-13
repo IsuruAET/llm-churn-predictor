@@ -41,10 +41,10 @@ class ChurnRequest(BaseModel):
 # Model pricing (per 1K tokens) - Updated as of 2025
 MODEL_PRICING = {
     "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
-    "gpt-4": {"input": 0.03, "output": 0.06},
-    "gpt-4-turbo": {"input": 0.01, "output": 0.03},
     "gpt-4o": {"input": 0.0025, "output": 0.01},
-    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "o3": {"input": 0.00015, "output": 0.0006},
+    "o4-mini": {"input": 0.00015, "output": 0.0006},
+    "gpt-5-mini": {"input": 0.001, "output": 0.003},
     "gpt-5": {"input": 0.005, "output": 0.015}
 }
 
@@ -621,7 +621,7 @@ def predict_churn(request: ChurnRequest):
         chunk_start_time = time.time()
         
         # Use max_completion_tokens for GPT-5, max_tokens for other models
-        if request.model == "gpt-5":
+        if request.model in ["gpt-5", "gpt-5-mini", "o4-mini", "o3"]:
             response = client.chat.completions.create(
                 model=request.model,
                 messages=[system_message, user_message],
