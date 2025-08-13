@@ -512,14 +512,14 @@ with tab2:
                     # Calculate Real Churn Ratio from Churn Distribution
                     if 'Churn Distribution' in df_simple.columns:
                         df_simple['Real Churn Ratio'] = df_simple['Churn Distribution'].apply(
-                            lambda x: f"{x.split(':')[0]}/{x.split(':')[1]}" if isinstance(x, str) and ':' in x else "0/0"
+                            lambda x: f"{x.split(':')[0]}:{x.split(':')[1]}" if isinstance(x, str) and ':' in x else "0:0"
                         )
                     
                     # Calculate Predict Churn Ratio from predicted churn count vs predicted non-churn count
                     if 'Predicted Churn Count' in df_simple.columns and 'Total Customers' in df_simple.columns:
                         df_simple['Predict Churn Ratio'] = df_simple.apply(
-                            lambda row: f"{row['Predicted Churn Count']}/{row['Total Customers'] - row['Predicted Churn Count']}"
-                            if row['Total Customers'] > 0 else "0/0", axis=1
+                            lambda row: f"{row['Predicted Churn Count']}:{row['Total Customers'] - row['Predicted Churn Count']}"
+                            if row['Total Customers'] > 0 else "0:0", axis=1
                         )
                     
                     # Filter to only include available columns
