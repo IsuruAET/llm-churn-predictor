@@ -8,7 +8,7 @@ import random
 st.set_page_config(page_title="Churn Predictor LLM", layout="wide")
 
 # Create tabs
-tab1, tab2 = st.tabs(["🔮 Predict Churn", "📊 Prediction Logs"])
+tab1, tab2, tab3 = st.tabs(["🔮 Predict Churn", "📊 Prediction Logs", "🔍 Error Analysis"])
 
 with tab1:
     st.title("🧠 Churn Prediction using OpenAI LLM")
@@ -331,6 +331,39 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                                 st.write(f"- {customer_id}")
                         else:
                             st.write("No customers predicted to churn")
+                    
+                    # Display mismatch and false positive analysis
+                    st.write("---")
+                    st.subheader("🔍 Prediction Error Analysis")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        mismatched_count = len(data.get("mismatched_ids", []))
+                        st.write(f"**🔴 Mismatched IDs ({mismatched_count}):**")
+                        if data.get("mismatched_ids"):
+                            for customer_id in sorted(data["mismatched_ids"]):
+                                st.write(f"- {customer_id}")
+                        else:
+                            st.write("✅ No mismatches - all actual churned customers were correctly predicted")
+                    
+                    with col2:
+                        false_positive_count = len(data.get("false_positive_ids", []))
+                        st.write(f"**🟡 False Positive IDs ({false_positive_count}):**")
+                        if data.get("false_positive_ids"):
+                            for customer_id in sorted(data["false_positive_ids"]):
+                                st.write(f"- {customer_id}")
+                        else:
+                            st.write("✅ No false positives - all predicted churned customers were correct")
+                    
+                    # Store data for analysis tab
+                    if 'last_prediction_data' not in st.session_state:
+                        st.session_state.last_prediction_data = None
+                    st.session_state.last_prediction_data = data
+                    
+                    # Auto-trigger analysis if there are errors
+                    if mismatched_count > 0 or false_positive_count > 0:
+                        st.info("💡 **Tip:** Switch to the 'Error Analysis' tab to get AI-powered insights on why these prediction errors occurred!")
                 else:
                     st.error("❌ Failed to get predictions")
     else:
@@ -540,3 +573,104 @@ with tab2:
     else:
         st.error("❌ Failed to fetch prediction logs")
         st.info("Make sure the backend server is running on http://localhost:8000")
+
+with tab3:
+    st.title("🔍 Error Analysis")
+    
+    if 'last_prediction_data' not in st.session_state or not st.session_state.last_prediction_data:
+        st.info("👆 Run a prediction first to analyze errors")
+    else:
+        prediction_data = st.session_state.last_prediction_data
+        
+        # Display current error summary
+        st.subheader("📊 Current Error Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            mismatched_count = len(prediction_data.get("mismatched_ids", []))
+            st.metric("Mismatched IDs", mismatched_count, help="Actual churned but not predicted")
+        with col2:
+            false_positive_count = len(prediction_data.get("false_positive_ids", []))
+            st.metric("False Positive IDs", false_positive_count, help="Predicted to churn but didn't actually churn")
+        with col3:
+            total_errors = mismatched_count + false_positive_count
+            st.metric("Total Errors", total_errors)
+        
+        if total_errors == 0:
+            st.success("🎉 No prediction errors to analyze!")
+        else:
+            st.write("---")
+            st.subheader("🤖 AI-Powered Error Analysis")
+            
+            # Analysis settings
+            col1, col2 = st.columns(2)
+            with col1:
+                analysis_model = st.selectbox(
+                    "Analysis Model",
+                    ["gpt-3.5-turbo", "gpt-4o", "o3", "o4-mini", "gpt-5-mini", "gpt-5"],
+                    index=0,
+                    help="Choose the OpenAI model for error analysis"
+                )
+            
+            with col2:
+                st.write("")
+            
+            # Custom analysis prompt
+            custom_analysis_prompt = st.text_area(
+                "Additional Analysis Instructions",
+                value="",
+                height=100,
+                help="Add specific questions or focus areas for the error analysis"
+            )
+            
+            if st.button("🔍 Analyze Errors"):
+                with st.spinner("Analyzing prediction errors..."):
+                    # Prepare customer data for analysis
+                    customer_data = {}
+                    if 'dataset_data' in st.session_state and st.session_state.dataset_data:
+                        for row in st.session_state.dataset_data["dataset"]:
+                            customer_id = row['customer_id']
+                            if customer_id not in customer_data:
+                                customer_data[customer_id] = []
+                            customer_data[customer_id].append(row)
+                    
+                    analysis_request = {
+                        "mismatched_ids": prediction_data.get("mismatched_ids", []),
+                        "false_positive_ids": prediction_data.get("false_positive_ids", []),
+                        "customer_data": customer_data,
+                        "given_date": prediction_data.get("given_date", ""),
+                        "num_weeks": prediction_data.get("num_weeks", 0),
+                        "model": analysis_model,
+                        "custom_prompt": custom_analysis_prompt if custom_analysis_prompt.strip() else None
+                    }
+                    
+                    analysis_res = requests.post("http://localhost:8000/analyze-mismatches", json=analysis_request)
+                    
+                    if analysis_res.status_code == 200:
+                        analysis_data = analysis_res.json()
+                        
+                        if "error" in analysis_data:
+                            st.error(f"❌ Analysis failed: {analysis_data['error']}")
+                        else:
+                            st.success("✅ Error analysis complete!")
+                            
+                            # Store analysis results and mark as just run
+                            st.session_state.last_analysis_result = analysis_data
+                            st.session_state.analysis_just_run = True
+                            
+                            # Display analysis results
+                            st.subheader("📋 Analysis Results")
+                            st.markdown(analysis_data["analysis"])
+                    else:
+                        st.error("❌ Failed to analyze errors")
+            
+            # Display previous analysis if available and no current analysis was just run
+            if 'last_analysis_result' in st.session_state and st.session_state.last_analysis_result:
+                # Only show previous analysis if we haven't just run a new one
+                if not st.session_state.get('analysis_just_run', False):
+                    st.write("---")
+                    st.subheader("📋 Previous Analysis Results")
+                    st.markdown(st.session_state.last_analysis_result["analysis"])
+                else:
+                    # Reset the flag after displaying
+                    st.session_state.analysis_just_run = False

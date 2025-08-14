@@ -423,11 +423,22 @@ def predict_churn(request: ChurnRequest):
     actual_churned = [customer_id for customer_id, weeks in grouped_data.items() 
                      if any(w['is_churn'] == 1 for w in weeks)]
 
+    # Calculate mismatches and false positives
+    actual_set = set(actual_churned)
+    predicted_set = set(predicted_ids)
+    
+    mismatched_ids = list(actual_set - predicted_set)  # Actual churned but not predicted
+    false_positive_ids = list(predicted_set - actual_set)  # Predicted but not actual
+    matched_ids = list(actual_set.intersection(predicted_set))
+
     total_tokens = total_input_tokens + total_output_tokens
 
     response_data = {
         "churned_customers": predicted_ids, 
         "actual_churned_customers": actual_churned,
+        "mismatched_ids": mismatched_ids,
+        "false_positive_ids": false_positive_ids,
+        "matched_ids": matched_ids,
         "raw_output": f"Processed {len(chunks)} chunks with batching. Total predicted churn customers: {len(predicted_ids)}",
         "total_customers": len(grouped_data),
         "all_customer_ids": list(grouped_data.keys()),
@@ -449,3 +460,104 @@ def predict_churn(request: ChurnRequest):
     log_prediction_to_csv(response_data)
 
     return response_data
+
+class AnalysisRequest(BaseModel):
+    mismatched_ids: list
+    false_positive_ids: list
+    customer_data: dict
+    given_date: str
+    num_weeks: int
+    model: str = "gpt-3.5-turbo"
+    custom_prompt: Optional[str] = None
+
+@app.post("/analyze-mismatches")
+def analyze_mismatches(request: AnalysisRequest):
+    if not request.mismatched_ids and not request.false_positive_ids:
+        return {"error": "No mismatches or false positives to analyze"}
+    
+    # Prepare customer data for analysis
+    analysis_data = []
+    
+    for customer_id in request.mismatched_ids + request.false_positive_ids:
+        if customer_id in request.customer_data:
+            customer_weeks = request.customer_data[customer_id]
+            analysis_data.append({
+                "customer_id": customer_id,
+                "type": "mismatch" if customer_id in request.mismatched_ids else "false_positive",
+                "weeks": customer_weeks
+            })
+    
+    # Create analysis prompt
+    system_message = {
+        "role": "system",
+        "content": (
+            "You are a churn prediction analyst expert. Analyze why the prediction model failed for these specific customers. "
+            "Provide detailed insights on what patterns or factors the model missed or misinterpreted."
+        )
+    }
+    
+    user_message_content = f"""
+Analysis Date: {request.given_date}
+Historical Weeks Analyzed: {request.num_weeks}
+
+The following customers had prediction errors:
+
+MISMATCHED IDs (Actual churned but not predicted):
+{', '.join(request.mismatched_ids) if request.mismatched_ids else 'None'}
+
+FALSE POSITIVE IDs (Predicted to churn but didn't actually churn):
+{', '.join(request.false_positive_ids) if request.false_positive_ids else 'None'}
+
+Customer Data:
+"""
+    
+    for item in analysis_data:
+        user_message_content += f"\n--- Customer {item['customer_id']} ({item['type'].upper()}) ---\n"
+        for week in item['weeks']:
+            user_message_content += (
+                f"Week: {week['week_end_date']}, "
+                f"Orders: {week['order_count']}, "
+                f"Total: {week['order_total']}, "
+                f"Discount: {week['discount_total']}, "
+                f"Loyalty: {week['loyalty_earned']}\n"
+            )
+    
+    user_message_content += f"""
+
+Please analyze why these prediction errors occurred and provide:
+1. Key patterns the model missed for mismatched customers
+2. Why false positive customers were incorrectly flagged
+3. Recommendations to improve prediction accuracy
+4. Specific behavioral indicators that should be considered
+
+{request.custom_prompt if request.custom_prompt else ''}
+"""
+    
+    user_message = {"role": "user", "content": user_message_content}
+    
+    try:
+        if request.model in ["gpt-5", "gpt-5-mini", "o4-mini", "o3"]:
+            response = client.chat.completions.create(
+                model=request.model,
+                messages=[system_message, user_message],
+                max_completion_tokens=2000,
+                response_format={"type": "text"},
+                temperature=0.1
+            )
+        else:
+            response = client.chat.completions.create(
+                model=request.model,
+                messages=[system_message, user_message],
+                temperature=0.1,
+                max_tokens=2000
+            )
+        
+        analysis_result = response.choices[0].message.content.strip()
+        
+        return {
+            "analysis": analysis_result,
+            "model": request.model
+        }
+        
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
