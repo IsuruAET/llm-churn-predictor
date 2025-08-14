@@ -16,10 +16,10 @@ with tab1:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=1)
+        churn_count = st.slider("Churn Customer Sample Size", min_value=1, max_value=100, value=25)
 
     with col2:
-        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=4)
+        non_churn_count = st.slider("Non-Churn Customer Sample Size", min_value=1, max_value=400, value=100)
 
     with col3:
         default_date = date.today()
@@ -217,12 +217,15 @@ with tab1:
                 st.success("✅ All prediction and analysis results cleared!")
                 st.rerun()
         
+        # Create a copy of filtered dataset to avoid SettingWithCopyWarning
+        filtered_dataset_copy = filtered_dataset.copy()
+        
         # Add churn status column for better visualization
-        filtered_dataset['Churn Status'] = filtered_dataset['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
+        filtered_dataset_copy['Churn Status'] = filtered_dataset_copy['is_churn'].apply(lambda x: "🔴 Churned" if x == 1 else "🟢 Active")
         
         # Reorder columns for better display
         display_columns = ['customer_id', 'Churn Status', 'week_end_date', 'order_count', 'order_total', 'discount_total', 'loyalty_earned']
-        df_display = filtered_dataset[display_columns].copy()
+        df_display = filtered_dataset_copy[display_columns].copy()
         df_display.columns = ['Customer ID', 'Churn Status', 'Week End Date', 'Order Count', 'Order Total', 'Discount Total', 'Loyalty Earned']
         
         # Display all data in one datagrid
@@ -421,18 +424,7 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                 st.write("---")
                 st.subheader("🤖 AI-Powered Error Analysis")
                 
-                # Analysis settings
-                col1, col2 = st.columns(2)
-                with col1:
-                    analysis_model = st.selectbox(
-                        "Analysis Model",
-                        ["gpt-3.5-turbo", "gpt-4o", "o3", "o4-mini", "gpt-5-mini", "gpt-5"],
-                        index=0,
-                        help="Choose the OpenAI model for error analysis"
-                    )
-                
-                with col2:
-                    st.write("")
+                st.info("🔍 **Analysis Model:** gpt-4o (Fixed model for consistent analysis)")
                 
                 # Custom analysis prompt
                 custom_analysis_prompt = st.text_area(
@@ -443,7 +435,7 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                 )
                 
                 if st.button("🔍 Analyze Errors"):
-                    with st.spinner("Analyzing prediction errors..."):
+                    with st.spinner("Analyzing prediction errors with gpt-4o..."):
                         # Prepare customer data for analysis
                         customer_data = {}
                         if 'dataset_data' in st.session_state and st.session_state.dataset_data:
@@ -459,7 +451,7 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                             "customer_data": customer_data,
                             "given_date": data.get("given_date", ""),
                             "num_weeks": data.get("num_weeks", 0),
-                            "model": analysis_model,
+                            "model": "gpt-4o",
                             "custom_prompt": custom_analysis_prompt if custom_analysis_prompt.strip() else None
                         }
                         
@@ -481,8 +473,24 @@ Which customers will churn next week? Respond with a list of customer_ids only."
                 # Display analysis results if available
                 if st.session_state.analysis_completed and st.session_state.last_analysis_result:
                     st.write("---")
-                    st.subheader("📋 Analysis Results")
+                    st.subheader("📋 AI Analysis Results")
+                    
+                    # Display model info
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.info(f"**Analysis Model:** {st.session_state.last_analysis_result.get('model', 'gpt-4o')}")
+                    with col2:
+                        st.info(f"**Analysis Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # Display the detailed analysis
+                    st.markdown("### 🔍 Detailed Customer Analysis")
                     st.markdown(st.session_state.last_analysis_result["analysis"])
+                    
+                    # Display analysis results in a simple copyable format
+                    analysis_text = st.session_state.last_analysis_result["analysis"]
+                    
+                    st.write("**Copy this text:**")
+                    st.code(analysis_text, language="text")
             else:
                 st.info("💡 **Perfect Prediction!** No errors to analyze.")
     else:

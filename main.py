@@ -467,7 +467,7 @@ class AnalysisRequest(BaseModel):
     customer_data: dict
     given_date: str
     num_weeks: int
-    model: str = "gpt-3.5-turbo"
+    model: str = "gpt-4o"
     custom_prompt: Optional[str] = None
 
 @app.post("/analyze-mismatches")
@@ -492,7 +492,8 @@ def analyze_mismatches(request: AnalysisRequest):
         "role": "system",
         "content": (
             "You are a churn prediction analyst expert. Analyze why the prediction model failed for these specific customers. "
-            "Provide detailed insights on what patterns or factors the model missed or misinterpreted."
+            "For each customer, provide specific reasons why they were mismatched or false positive. "
+            "Focus on behavioral patterns, trends, and specific indicators that the model should have considered."
         )
     }
     
@@ -524,39 +525,33 @@ Customer Data:
     
     user_message_content += f"""
 
-Please analyze why these prediction errors occurred and provide:
-1. Key patterns the model missed for mismatched customers
-2. Why false positive customers were incorrectly flagged
-3. Recommendations to improve prediction accuracy
-4. Specific behavioral indicators that should be considered
+Provide ONLY brief reasons with evidence for each customer:
 
-{request.custom_prompt if request.custom_prompt else ''}
+**Mismatched Customers (Why model missed their churn):**
+{', '.join([f'Customer {id}: [Brief reason with specific data evidence]' for id in request.mismatched_ids]) if request.mismatched_ids else 'None'}
+
+**False Positive Customers (Why model incorrectly flagged them):**
+{', '.join([f'Customer {id}: [Brief reason with specific data evidence]' for id in request.false_positive_ids]) if request.false_positive_ids else 'None'}
+
+For each reason, include 1-2 specific data points (e.g., "declining orders from 3 to 0 over last 4 weeks", "order total dropped from $150 to $25"). Keep explanations concise but evidence-based.
 """
     
     user_message = {"role": "user", "content": user_message_content}
     
     try:
-        if request.model in ["gpt-5", "gpt-5-mini", "o4-mini", "o3"]:
-            response = client.chat.completions.create(
-                model=request.model,
-                messages=[system_message, user_message],
-                max_completion_tokens=2000,
-                response_format={"type": "text"},
-                temperature=0.1
-            )
-        else:
-            response = client.chat.completions.create(
-                model=request.model,
-                messages=[system_message, user_message],
-                temperature=0.1,
-                max_tokens=2000
-            )
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[system_message, user_message],
+            max_completion_tokens=1000,
+            response_format={"type": "text"},
+            temperature=0.1
+        )
         
         analysis_result = response.choices[0].message.content.strip()
         
         return {
             "analysis": analysis_result,
-            "model": request.model
+            "model": "gpt-4o"
         }
         
     except Exception as e:
