@@ -541,7 +541,9 @@ with tab2:
                     cols.insert(accuracy_idx + 1, cols.pop(cols.index('Recall')))
                     df = df[cols]
 
-                col1, col2, col3, col4, col5 = st.columns(5)
+                # Summary Section
+                st.subheader("📈 Summary")
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
                 with col1:
                     st.metric("Total Predictions", len(df))
                 with col2:
@@ -549,17 +551,20 @@ with tab2:
                     true_negatives = df['Total Customers'].sum() - (df['Matched'].sum() + df['Mismatched'].sum() + df['False Positives'].sum())
                     total_predictions = df['Total Customers'].sum()
                     accuracy = (true_positives + true_negatives) / total_predictions * 100 if total_predictions > 0 else 0
-                    st.metric("Accuracy", f"{accuracy:.1f}%", help="Overall correct predictions. Formula: (True Positives + True Negatives) / Total Predictions")
+                    st.metric("Accuracy", f"{accuracy:.1f}%")
                 with col3:
                     false_negatives = df['Mismatched'].sum()
                     recall = true_positives / (true_positives + false_negatives) * 100 if (true_positives + false_negatives) > 0 else 0
-                    st.metric("Recall", f"{recall:.1f}%", help="Correct detection of actual positives. Formula: True Positives / (True Positives + False Negatives)")
+                    st.metric("Recall", f"{recall:.1f}%")
                 with col4:
-                    total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
-                    st.metric("Total Cost", f"${total_cost:.6f}")
-                with col5:
                     total_tokens = df['Total Tokens'].sum() if 'Total Tokens' in df.columns else 0
                     st.metric("Total Tokens", f"{total_tokens:,}")
+                with col5:
+                    total_cost = sum([float(str(x).replace('$', '')) for x in df['Total Cost'] if pd.notna(x)])
+                    st.metric("Total Cost", f"${total_cost:.6f}")
+                with col6:
+                    total_time = df['Response Time (seconds)'].sum() if 'Response Time (seconds)' in df.columns else 0
+                    st.metric("Total Time", f"{total_time:.2f}s")
 
                 # Create a copy for display with counts instead of ID lists
                 df_display = df.copy()
