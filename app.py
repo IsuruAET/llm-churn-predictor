@@ -619,6 +619,7 @@ with tab2:
                 # Define the columns to display in the specified order
                 display_columns = [
                     'Row Index',
+                    'Model',
                     'Given Date',
                     'Total Customers',
                     'Real Churn Ratio',
